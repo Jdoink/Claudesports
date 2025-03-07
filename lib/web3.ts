@@ -1,5 +1,4 @@
 import CoinbaseWalletSDK from '@coinbase/wallet-sdk';
-import { EthereumProvider } from '@coinbase/wallet-sdk/dist/provider/EthereumProvider';
 
 // Define chain information for Base
 const BASE_MAINNET = {
@@ -36,7 +35,7 @@ const APP_LOGO_URL = 'https://www.svgrepo.com/show/475623/bet-color.svg';
 
 // Coinbase Wallet singleton instance
 let coinbaseWallet: CoinbaseWalletSDK | null = null;
-let provider: EthereumProvider | null = null;
+let provider: any = null;
 
 /**
  * Initialize the Coinbase Wallet SDK
@@ -56,7 +55,7 @@ export function initCoinbaseWallet(): CoinbaseWalletSDK {
 /**
  * Get the Ethereum provider from Coinbase Wallet
  */
-export function getProvider(): EthereumProvider {
+export function getProvider(): any {
   if (!provider) {
     const wallet = initCoinbaseWallet();
     provider = wallet.makeWeb3Provider(DEFAULT_CHAIN.rpcUrls[0], parseInt(DEFAULT_CHAIN.chainId, 16));
