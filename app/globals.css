@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 255, 255, 255;
+  --background-start-rgb: 0, 0, 0;
+  --background-end-rgb: 0, 0, 0;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+}
+
+/* Casino style flashing animations */
+@keyframes pulse-yellow {
+  0%, 100% {
+    background-color: #F59E0B;
+  }
+  50% {
+    background-color: #FBBF24;
+  }
+}
+
+@keyframes pulse-blue {
+  0%, 100% {
+    background-color: #3B82F6;
+  }
+  50% {
+    background-color: #60A5FA;
+  }
+}
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 5px #F59E0B, 0 0 10px #F59E0B;
+  }
+  50% {
+    box-shadow: 0 0 20px #F59E0B, 0 0 30px #F59E0B;
+  }
+}
+
+.animate-pulse-yellow {
+  animation: pulse-yellow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-pulse-blue {
+  animation: pulse-blue 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-glow {
+  animation: glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Base chain styling */
+.base-gradient {
+  background: linear-gradient(90deg, #0052FF 0%, #0082FF 100%);
+}
+
+/* Betting card styles */
+.bet-card {
+  @apply bg-gray-900 rounded-xl overflow-hidden shadow-2xl mb-8 border-2 border-yellow-500 hover:border-yellow-400 transition-all duration-300;
+}
+
+.bet-card-header {
+  @apply bg-gradient-to-r from-yellow-600 via-yellow-500 to-yellow-600 text-black p-3 text-center;
+}
+
+/* Form styles */
+.form-input {
+  @apply w-full p-3 bg-gray-800 rounded-lg border border-gray-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-900 text-xl;
+}
+
+.btn-primary {
+  @apply bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-3 px-6 rounded-lg transition-colors duration-200;
+}
+
+.btn-secondary {
+  @apply bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200;
+}
+
+.btn-danger {
+  @apply bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200;
+}
