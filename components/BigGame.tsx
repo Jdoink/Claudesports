@@ -1,4 +1,4 @@
-// components/BigGame.tsx - Updated for real games
+// components/BigGame.tsx - Corrected version
 import React, { useEffect, useState } from 'react';
 import { getBigGame, Market } from '@/lib/overtimeApi';
 
@@ -98,11 +98,6 @@ const BigGame: React.FC = () => {
             <div className="mt-2 bg-gray-800 px-3 py-1 rounded-full text-xs">
               {game.category || game.sport.toUpperCase()}
             </div>
-            {game.isDemo && (
-              <div className="mt-2 bg-red-600 px-3 py-1 rounded-full text-xs">
-                DEMO - Actual Game
-              </div>
-            )}
             <div className="mt-2 bg-blue-600 px-3 py-1 rounded-full text-xs flex items-center">
               <svg width="16" height="16" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="mr-1">
                 <path d="M16 0C7.164 0 0 7.164 0 16s7.164 16 16 16 16-7.164 16-16S24.836 0 16 0z" fill="#0052FF"/>
@@ -127,7 +122,7 @@ const BigGame: React.FC = () => {
       
       {/* Game info */}
       <div className="bg-gray-800 p-2 text-center text-gray-400 text-sm">
-        Real Game ID: {game.gameId.slice(0, 16)}...
+        Game ID: {game.gameId ? game.gameId.slice(0, 16) + '...' : 'N/A'}
       </div>
     </div>
   );
