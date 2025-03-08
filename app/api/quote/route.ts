@@ -1,4 +1,4 @@
-// app/api/quote/route.ts
+// app/api/quote/route.ts - Updated with correct API format
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
@@ -7,15 +7,15 @@ export async function POST(request: Request) {
     const body = await request.json();
     
     // Get the network ID from the request or use a default
-    const networkId = body.networkId || 8453; // Default to Base if not specified
+    const networkId = body.networkId || 10; // Default to Optimism if not specified
     
-    // Construct the URL for the Overtime Markets API with the CORRECT domain
+    // Correct endpoint for quotes based on the documentation
     const apiUrl = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/quote`;
     
-    console.log('Sending request to:', apiUrl);
-    console.log('Request body:', JSON.stringify(body.tradeData, null, 2));
+    console.log('Sending quote request to:', apiUrl);
+    console.log('Quote request data:', JSON.stringify(body.tradeData, null, 2));
     
-    // Make the request to the Overtime Markets API
+    // Make the request to the Overtime Markets API with the correct body format
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     
     // Parse and return the response
     const data = await response.json();
-    console.log('Response from Overtime API:', JSON.stringify(data, null, 2));
+    console.log('Quote API response:', JSON.stringify(data, null, 2));
     
     return NextResponse.json(data);
   } catch (error) {
