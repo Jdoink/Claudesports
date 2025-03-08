@@ -1,10 +1,7 @@
-// lib/web3.ts - Complete file without invalid option
+// lib/web3.ts - Fixed wallet connection issues
 import CoinbaseWalletSDK from '@coinbase/wallet-sdk';
 
-// Add WalletConnect Project ID - We'll use this in environment variables
-const WALLET_CONNECT_PROJECT_ID = '71e0d4048c5540358264c232399afa31';
-
-// Define chain information for Base
+// Default to use Base Mainnet
 const BASE_MAINNET = {
   chainId: '0x2105', // 8453 in hex
   chainName: 'Base Mainnet',
@@ -17,73 +14,87 @@ const BASE_MAINNET = {
   blockExplorerUrls: ['https://basescan.org'],
 };
 
-// Define chain information for Base Goerli (testnet)
-const BASE_GOERLI = {
-  chainId: '0x14a33', // 84531 in hex
-  chainName: 'Base Goerli',
-  nativeCurrency: {
-    name: 'ETH',
-    symbol: 'ETH',
-    decimals: 18,
-  },
-  rpcUrls: ['https://goerli.base.org'],
-  blockExplorerUrls: ['https://goerli.basescan.org'],
-};
-
-// Default to use Base Mainnet
-const DEFAULT_CHAIN = BASE_MAINNET;
-
 // App configuration
 const APP_NAME = 'DailyBet';
 const APP_LOGO_URL = 'https://www.svgrepo.com/show/475623/bet-color.svg';
+const DEFAULT_RPC_URL = 'https://mainnet.base.org';
 
 // Coinbase Wallet singleton instance
 let coinbaseWallet: CoinbaseWalletSDK | null = null;
 let provider: any = null;
 
 /**
- * Initialize the Coinbase Wallet SDK
+ * Initialize the Coinbase Wallet SDK with error handling
  */
 export function initCoinbaseWallet(): CoinbaseWalletSDK {
-  if (!coinbaseWallet) {
-    coinbaseWallet = new CoinbaseWalletSDK({
-      appName: APP_NAME,
-      appLogoUrl: APP_LOGO_URL,
-      darkMode: true,
-      overrideIsMetaMask: false,
-      // Note: walletConnectProjectId is not used here, as it's not a valid option
-    });
+  try {
+    if (!coinbaseWallet) {
+      console.log("Initializing Coinbase Wallet SDK...");
+      coinbaseWallet = new CoinbaseWalletSDK({
+        appName: APP_NAME,
+        appLogoUrl: APP_LOGO_URL,
+        darkMode: true
+      });
+    }
+    return coinbaseWallet;
+  } catch (error) {
+    console.error("Error initializing Coinbase Wallet:", error);
+    throw new Error("Failed to initialize wallet. Please refresh and try again.");
   }
-  return coinbaseWallet;
 }
 
 /**
  * Get the Ethereum provider from Coinbase Wallet
  */
 export function getProvider(): any {
-  if (!provider) {
-    const wallet = initCoinbaseWallet();
-    provider = wallet.makeWeb3Provider(DEFAULT_CHAIN.rpcUrls[0], parseInt(DEFAULT_CHAIN.chainId, 16));
+  try {
+    if (!provider) {
+      const wallet = initCoinbaseWallet();
+      provider = wallet.makeWeb3Provider(DEFAULT_RPC_URL, 8453);
+    }
+    return provider;
+  } catch (error) {
+    console.error("Error getting provider:", error);
+    throw new Error("Failed to connect to blockchain. Please refresh and try again.");
   }
-  return provider;
 }
 
 /**
- * Connect to Coinbase Wallet
+ * Connect to Coinbase Wallet with improved error handling
  * @returns Promise<string> Connected wallet address
  */
 export async function connectWallet(): Promise<string> {
   try {
+    console.log("Connecting to wallet...");
     const ethProvider = getProvider();
-    const accounts = await ethProvider.request({ method: 'eth_requestAccounts' });
+    
+    // Request accounts with timeout
+    const accountsPromise = ethProvider.request({ method: 'eth_requestAccounts' });
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Connection request timed out")), 30000)
+    );
+    
+    const accounts = await Promise.race([accountsPromise, timeoutPromise]);
+    console.log("Connected accounts:", accounts);
+    
+    if (!accounts || accounts.length === 0) {
+      throw new Error("No accounts returned");
+    }
     
     // Switch to Base chain if not already on it
     await switchToBaseChain();
     
     return accounts[0];
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error connecting wallet:', error);
-    throw error;
+    // Handle specific errors
+    if (error.message && error.message.includes("User rejected")) {
+      throw new Error("Connection rejected. Please try again.");
+    } else if (error.message && error.message.includes("already pending")) {
+      throw new Error("Connection request already pending. Please check your wallet.");
+    } else {
+      throw new Error(`Failed to connect wallet: ${error.message || "Unknown error"}`);
+    }
   }
 }
 
@@ -93,8 +104,10 @@ export async function connectWallet(): Promise<string> {
 export async function disconnectWallet(): Promise<void> {
   if (provider) {
     try {
-      await provider.close();
+      // For Coinbase Wallet SDK, we can't actually call close()
+      // Instead, we null out our references
       provider = null;
+      console.log("Wallet disconnected");
     } catch (error) {
       console.error('Error disconnecting wallet:', error);
     }
@@ -109,7 +122,7 @@ export async function isWalletConnected(): Promise<boolean> {
   try {
     const ethProvider = getProvider();
     const accounts = await ethProvider.request({ method: 'eth_accounts' });
-    return accounts.length > 0;
+    return accounts && accounts.length > 0;
   } catch (error) {
     console.error('Error checking wallet connection:', error);
     return false;
@@ -124,7 +137,7 @@ export async function getConnectedAccount(): Promise<string | null> {
   try {
     const ethProvider = getProvider();
     const accounts = await ethProvider.request({ method: 'eth_accounts' });
-    return accounts[0] || null;
+    return accounts && accounts.length > 0 ? accounts[0] : null;
   } catch (error) {
     console.error('Error getting connected account:', error);
     return null;
@@ -132,7 +145,7 @@ export async function getConnectedAccount(): Promise<string | null> {
 }
 
 /**
- * Get current chain ID
+ * Get current chain ID with better error handling
  * @returns Promise<string>
  */
 export async function getChainId(): Promise<string> {
@@ -146,45 +159,53 @@ export async function getChainId(): Promise<string> {
 }
 
 /**
- * Switch to Base chain
+ * Switch to Base chain with improved error handling
  */
 export async function switchToBaseChain(): Promise<void> {
   try {
+    console.log("Attempting to switch to Base chain...");
     const ethProvider = getProvider();
     const currentChainId = await getChainId();
     
     // If already on Base, no need to switch
-    if (currentChainId === DEFAULT_CHAIN.chainId) {
+    if (currentChainId === BASE_MAINNET.chainId) {
+      console.log("Already on Base chain");
       return;
     }
     
     try {
       // Try to switch to Base
+      console.log("Requesting chain switch to Base...");
       await ethProvider.request({
         method: 'wallet_switchEthereumChain',
-        params: [{ chainId: DEFAULT_CHAIN.chainId }],
+        params: [{ chainId: BASE_MAINNET.chainId }],
       });
+      console.log("Successfully switched to Base chain");
     } catch (switchError: any) {
+      console.error("Error switching chains:", switchError);
+      
       // If the chain hasn't been added to the wallet, add it
       if (switchError.code === 4902) {
+        console.log("Base chain not found, adding it...");
         await ethProvider.request({
           method: 'wallet_addEthereumChain',
           params: [
             {
-              chainId: DEFAULT_CHAIN.chainId,
-              chainName: DEFAULT_CHAIN.chainName,
-              nativeCurrency: DEFAULT_CHAIN.nativeCurrency,
-              rpcUrls: DEFAULT_CHAIN.rpcUrls,
-              blockExplorerUrls: DEFAULT_CHAIN.blockExplorerUrls,
+              chainId: BASE_MAINNET.chainId,
+              chainName: BASE_MAINNET.chainName,
+              nativeCurrency: BASE_MAINNET.nativeCurrency,
+              rpcUrls: BASE_MAINNET.rpcUrls,
+              blockExplorerUrls: BASE_MAINNET.blockExplorerUrls,
             },
           ],
         });
+        console.log("Base chain added successfully");
       } else {
         throw switchError;
       }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error switching to Base chain:', error);
-    throw error;
+    throw new Error(`Failed to switch to Base network: ${error.message || "Unknown error"}`);
   }
 }
