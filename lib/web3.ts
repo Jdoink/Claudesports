@@ -1,7 +1,7 @@
-// lib/web3.ts - Complete file with WalletConnect Project ID
+// lib/web3.ts - Complete file without invalid option
 import CoinbaseWalletSDK from '@coinbase/wallet-sdk';
 
-// Add WalletConnect Project ID
+// Add WalletConnect Project ID - We'll use this in environment variables
 const WALLET_CONNECT_PROJECT_ID = '71e0d4048c5540358264c232399afa31';
 
 // Define chain information for Base
@@ -51,8 +51,7 @@ export function initCoinbaseWallet(): CoinbaseWalletSDK {
       appLogoUrl: APP_LOGO_URL,
       darkMode: true,
       overrideIsMetaMask: false,
-      // Add WalletConnect Project ID here
-      walletConnectProjectId: WALLET_CONNECT_PROJECT_ID,
+      // Note: walletConnectProjectId is not used here, as it's not a valid option
     });
   }
   return coinbaseWallet;
