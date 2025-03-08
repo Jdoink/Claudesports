@@ -1,9 +1,9 @@
-// components/BigGame.tsx - Fixed all property references
+// components/BigGame.tsx - Fixed odds formatting
 import React, { useEffect, useState } from 'react';
 import { getBigGame, Market, getCurrentNetworkId } from '@/lib/overtimeApi';
 
 // Chain names mapping
-const CHAIN_NAMES = {
+const CHAIN_NAMES: Record<number, string> = {
   8453: 'Base',
   10: 'Optimism',
   42161: 'Arbitrum'
@@ -20,6 +20,7 @@ const BigGame: React.FC = () => {
       try {
         setLoading(true);
         const bigGame = await getBigGame();
+        console.log("BigGame component received game data:", bigGame);
         setGame(bigGame);
         setNetworkId(getCurrentNetworkId());
         setError(null);
@@ -39,17 +40,28 @@ const BigGame: React.FC = () => {
     return () => clearInterval(intervalId);
   }, []);
   
-  // Format the odds to be more readable American format
+  // Format the odds to be more readable American format - FIXED to prevent NaN
   const formatOdds = (odds: number) => {
-    if (odds >= 2) {
-      return `+${Math.round((odds - 1) * 100)}`;
-    } else {
-      return `-${Math.round(100 / (odds - 1))}`;
+    if (!odds || isNaN(odds) || odds <= 1) {
+      return "N/A"; // Return a default value for invalid odds
+    }
+    
+    try {
+      if (odds >= 2) {
+        return `+${Math.round((odds - 1) * 100)}`;
+      } else {
+        return `-${Math.round(100 / (odds - 1))}`;
+      }
+    } catch (error) {
+      console.error("Error formatting odds:", error, "Original odds value:", odds);
+      return "N/A";
     }
   };
   
   // Format date from timestamp
   const formatGameTime = (timestamp: number) => {
+    if (!timestamp) return "TBD";
+    
     const date = new Date(timestamp * 1000);
     return date.toLocaleString('en-US', {
       weekday: 'short',
@@ -63,7 +75,7 @@ const BigGame: React.FC = () => {
   
   // Get network name from ID
   const getNetworkName = (id: number) => {
-    return CHAIN_NAMES[id as keyof typeof CHAIN_NAMES] || `Chain ${id}`;
+    return CHAIN_NAMES[id] || `Chain ${id}`;
   };
   
   // Get network color
