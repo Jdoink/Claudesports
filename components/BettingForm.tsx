@@ -1,4 +1,4 @@
-// components/BettingForm.tsx - Fixed type error
+// components/BettingForm.tsx - Fixed odds formatting
 import React, { useState, useEffect } from 'react';
 import { isWalletConnected, getConnectedAccount } from '@/lib/web3';
 import { Market, placeBet } from '@/lib/overtimeApi';
@@ -126,19 +126,32 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     );
   }
 
-  // Format odds for display (American format)
+  // Format odds for display (American format) - FIXED to prevent NaN
   const formatOdds = (odds: number) => {
-    if (odds >= 2) {
-      return `+${Math.round((odds - 1) * 100)}`;
-    } else {
-      return `-${Math.round(100 / (odds - 1))}`;
+    if (!odds || isNaN(odds) || odds <= 1) {
+      return "N/A"; // Return a default value for invalid odds
+    }
+    
+    try {
+      if (odds >= 2) {
+        return `+${Math.round((odds - 1) * 100)}`;
+      } else {
+        return `-${Math.round(100 / (odds - 1))}`;
+      }
+    } catch (error) {
+      console.error("Error formatting odds:", error, "Original odds value:", odds);
+      return "N/A";
     }
   };
 
-  // Calculate potential winnings
+  // Calculate potential winnings - FIXED to prevent NaN
   const calculateWinnings = () => {
     if (!selectedTeam || !betAmount || parseFloat(betAmount) <= 0) return 0;
+    
     const odds = selectedTeam === 'home' ? game.homeOdds : game.awayOdds;
+    
+    if (!odds || isNaN(odds) || odds <= 1) return 0;
+    
     return parseFloat(betAmount) * odds;
   };
 
