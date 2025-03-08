@@ -1,3 +1,4 @@
+// components/BettingForm.tsx - Updated for new Market structure
 import React, { useState, useEffect } from 'react';
 import { isWalletConnected, getConnectedAccount } from '@/lib/web3';
 import { Market, placeBet } from '@/lib/overtimeApi';
@@ -12,7 +13,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
   const [selectedTeam, setSelectedTeam] = useState<'home' | 'away' | null>(null);
   const [betAmount, setBetAmount] = useState<string>('');
   const [isPlacingBet, setIsPlacingBet] = useState<boolean>(false);
-  const [betResult, setBetResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [betResult, setBetResult] = useState<{ success: boolean; message: string; txHash?: string } | null>(null);
   
   // Check wallet connection status
   useEffect(() => {
@@ -73,7 +74,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
       const { getProvider } = await import('@/lib/web3');
       const provider = getProvider();
       
-      // Team index: 0 for home, 1 for away
+      // Team index: 0 for home team, 1 for away team
       const teamIndex = selectedTeam === 'home' ? 0 : 1;
       
       // Call the placeBet function with the actual provider
