@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Complete file with fallback game
+// lib/overtimeApi.ts - Improved API integration
 // Types for Overtime/Thales markets based on their documentation
 export interface Market {
   address: string;
@@ -24,10 +24,13 @@ export interface Market {
   drawOddsWithBias?: number;
   liquidity?: number;
   networkId: number;
+  isDemo?: boolean; // Flag for demo games
 }
 
-// API endpoints for Overtime Markets V2
-const OVERTIME_API_BASE = 'https://api.overtimemarkets.xyz/v2';
+// API endpoints for Overtime Markets
+// Using both V1 and V2 endpoints to ensure we get data
+const OVERTIME_API_V1 = 'https://api.thalesmarket.io/overtime/markets/active';
+const OVERTIME_API_V2 = 'https://api.overtimemarkets.xyz/v2/markets';
 
 // Base Chain ID (8453)
 const BASE_CHAIN_ID = 8453;
@@ -71,6 +74,15 @@ function getFallbackGame(): Market {
   const homeTeam = nbaTeams[homeIndex];
   const awayTeam = nbaTeams[awayIndex];
   
+  // Format odds in American format
+  const homeOddsAmerican = homeTeam.odds >= 2.0 ? 
+    `+${Math.round((homeTeam.odds - 1) * 100)}` : 
+    `-${Math.round(100 / (homeTeam.odds - 1))}`;
+    
+  const awayOddsAmerican = awayTeam.odds >= 2.0 ? 
+    `+${Math.round((awayTeam.odds - 1) * 100)}` : 
+    `-${Math.round(100 / (awayTeam.odds - 1))}`;
+  
   // Create a fallback game
   return {
     address: "0x0000000000000000000000000000000000000000", // Dummy address
@@ -85,8 +97,99 @@ function getFallbackGame(): Market {
     isPaused: false,
     isCanceled: false,
     isResolved: false,
-    networkId: BASE_CHAIN_ID
+    networkId: BASE_CHAIN_ID,
+    isDemo: true // Mark as a demo game
   };
+}
+
+/**
+ * Try multiple API endpoints to fetch markets
+ * @returns Promise<Market[]> List of active markets
+ */
+async function fetchMarketsFromAllSources(): Promise<Market[]> {
+  const markets: Market[] = [];
+  const errors: string[] = [];
+  
+  // Try Overtime V2 API first
+  try {
+    console.log(`Fetching from V2: ${OVERTIME_API_V2}?networkId=${BASE_CHAIN_ID}&isOpen=true`);
+    const responseV2 = await fetch(
+      `${OVERTIME_API_V2}?networkId=${BASE_CHAIN_ID}&isOpen=true`,
+      { 
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store' 
+      }
+    );
+    
+    if (responseV2.ok) {
+      const data = await responseV2.json();
+      console.log('V2 API response:', data);
+      if (data.markets && data.markets.length > 0) {
+        markets.push(...data.markets);
+      } else {
+        errors.push("V2 API returned no markets");
+      }
+    } else {
+      errors.push(`V2 API returned status ${responseV2.status}`);
+    }
+  } catch (error) {
+    console.error('Error fetching from V2 API:', error);
+    errors.push(`V2 API error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  
+  // If V2 didn't work, try V1 API
+  if (markets.length === 0) {
+    try {
+      console.log(`Fetching from V1: ${OVERTIME_API_V1}?networkId=${BASE_CHAIN_ID}`);
+      const responseV1 = await fetch(
+        `${OVERTIME_API_V1}?networkId=${BASE_CHAIN_ID}`,
+        { 
+          headers: { 'Accept': 'application/json' },
+          cache: 'no-store' 
+        }
+      );
+      
+      if (responseV1.ok) {
+        const data = await responseV1.json();
+        console.log('V1 API response:', data);
+        if (data.markets && data.markets.length > 0) {
+          markets.push(...data.markets.map((m: any) => {
+            // Convert V1 format to our interface if needed
+            return {
+              address: m.address,
+              gameId: m.gameId || `game-${m.id}`,
+              sport: m.sport || m.sportId || "Unknown",
+              homeTeam: m.homeTeam,
+              awayTeam: m.awayTeam,
+              maturityDate: m.maturityDate || m.timestamp,
+              homeOdds: m.homeOdds,
+              awayOdds: m.awayOdds,
+              isPaused: m.isPaused || false,
+              isCanceled: m.isCanceled || false,
+              isResolved: m.isResolved || false,
+              networkId: m.networkId
+            };
+          }));
+        } else {
+          errors.push("V1 API returned no markets");
+        }
+      } else {
+        errors.push(`V1 API returned status ${responseV1.status}`);
+      }
+    } catch (error) {
+      console.error('Error fetching from V1 API:', error);
+      errors.push(`V1 API error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  
+  // If we found markets, return them
+  if (markets.length > 0) {
+    return markets;
+  }
+  
+  // If all API calls failed, log the errors and return fallback
+  console.error('All API calls failed:', errors);
+  return [getFallbackGame()];
 }
 
 /**
@@ -95,33 +198,18 @@ function getFallbackGame(): Market {
  */
 export async function getActiveMarkets(): Promise<Market[]> {
   try {
-    // Using the correct endpoint from the documentation
-    console.log(`Fetching markets from ${OVERTIME_API_BASE}/markets?networkId=${BASE_CHAIN_ID}&isOpen=true`);
+    const markets = await fetchMarketsFromAllSources();
     
-    const response = await fetch(
-      `${OVERTIME_API_BASE}/markets?networkId=${BASE_CHAIN_ID}&isOpen=true`
-    );
+    // Sort by maturity date (closest game first)
+    const sortedMarkets = [...markets].sort((a, b) => a.maturityDate - b.maturityDate);
     
-    if (!response.ok) {
-      console.log("API response not OK, returning fallback game");
-      return [getFallbackGame()];
-    }
+    // Log the markets for debugging
+    console.log(`Found ${sortedMarkets.length} markets, first one:`, 
+      sortedMarkets.length > 0 ? sortedMarkets[0] : 'None');
     
-    const data = await response.json();
-    console.log('Fetched markets data:', data);
-    
-    const markets = data.markets || [];
-    
-    // If no markets are available, use the fallback game
-    if (markets.length === 0) {
-      console.log("No markets available, returning fallback game");
-      return [getFallbackGame()];
-    }
-    
-    return markets;
+    return sortedMarkets;
   } catch (error) {
     console.error('Failed to fetch active markets:', error);
-    console.log("Error fetching markets, returning fallback game");
     return [getFallbackGame()];
   }
 }
@@ -136,20 +224,20 @@ export async function getBigGame(): Promise<Market | null> {
     
     if (markets.length === 0) {
       console.log('No markets available, should not happen with fallback');
-      return getFallbackGame(); // Fallback in case something goes wrong
+      return getFallbackGame();
     }
     
-    // Sort by maturity date (closest game first)
-    const sortedMarkets = [...markets].sort((a, b) => a.maturityDate - b.maturityDate);
+    // For real markets, take the first one (sorted by closest game)
+    // For demo markets, use the demo game
+    const topMarket = markets[0];
     
-    // Log the top market for debugging
-    console.log('Top market:', sortedMarkets[0]);
+    // Log the market for debugging
+    console.log('Selected top market:', topMarket);
     
-    // Return the market with the closest start time
-    return sortedMarkets[0];
+    return topMarket;
   } catch (error) {
     console.error('Failed to get the big game:', error);
-    return getFallbackGame(); // Fallback in case of error
+    return getFallbackGame();
   }
 }
 
@@ -167,11 +255,11 @@ export async function placeBet(
   provider: any
 ): Promise<{ success: boolean; message: string; txHash?: string }> {
   try {
-    // For fallback games with dummy address, return a mock success
+    // For demo games, return a mock success
     if (marketAddress === "0x0000000000000000000000000000000000000000") {
       return {
         success: true,
-        message: "This is a demo bet. In the live version, this would place a real bet on the blockchain.",
+        message: "This is a demo bet. In the live version with real Overtime Markets, this would place a real bet on the blockchain.",
         txHash: "0x" + "0".repeat(64) // Dummy transaction hash
       };
     }
@@ -224,8 +312,7 @@ export async function placeBet(
     }
     
     // Calculate expected payout based on the available amount
-    // For Overtime V2, we should use the quote function on the contract
-    // For now, using a simplified approach
+    // For real implementation, would use the actual calculation
     const minReturnAmount = amountInWei;
     
     // Execute the bet using buyFromAMMWithDifferentCollateralAndReferrer
