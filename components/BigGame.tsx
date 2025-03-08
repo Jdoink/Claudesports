@@ -1,4 +1,4 @@
-// components/BigGame.tsx - Fixed property name
+// components/BigGame.tsx - Fixed all property references
 import React, { useEffect, useState } from 'react';
 import { getBigGame, Market, getCurrentNetworkId } from '@/lib/overtimeApi';
 
@@ -120,7 +120,7 @@ const BigGame: React.FC = () => {
             <div className="text-yellow-500 font-bold text-xl mb-2">VS</div>
             <div className="text-sm text-gray-400">{formatGameTime(game.maturity)}</div>
             <div className="mt-2 bg-gray-800 px-3 py-1 rounded-full text-xs">
-              {game.category || game.sport.toUpperCase()}
+              {game.sport.toUpperCase()}
             </div>
             <div className={`mt-2 ${getNetworkColor(networkId)} px-3 py-1 rounded-full text-xs flex items-center`}>
               {getNetworkName(networkId)} Chain
