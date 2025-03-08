@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Updated with correct API endpoints from documentation
+// lib/overtimeApi.ts - Updated with correct API endpoints and fixed ethers v6 compatibility
 // Types for Overtime/Thales markets based on official documentation
 export interface Market {
   address: string;
@@ -342,8 +342,9 @@ export async function placeBet(
     const ethersProvider = new ethers.BrowserProvider(provider);
     const signer = await ethersProvider.getSigner();
     
-    // Check that user is on the correct network
-    const chainId = await signer.provider.getChainId();
+    // Check that user is on the correct network - Fixed for ethers v6
+    const network = await ethersProvider.getNetwork();
+    const chainId = Number(network.chainId);
     if (chainId !== networkId) {
       throw new Error(`Please switch to ${CHAIN_NAMES[networkId]} network to place this bet`);
     }
