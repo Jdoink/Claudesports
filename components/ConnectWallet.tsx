@@ -10,9 +10,13 @@ const ConnectWallet: React.FC = () => {
   useEffect(() => {
     const checkConnection = async () => {
       try {
+        console.log("Checking wallet connection...");
         const connected = await isWalletConnected();
+        console.log("Wallet connected:", connected);
+        
         if (connected) {
           const account = await getConnectedAccount();
+          console.log("Connected account:", account);
           setAddress(account);
         }
       } catch (err) {
@@ -21,6 +25,11 @@ const ConnectWallet: React.FC = () => {
     };
     
     checkConnection();
+    
+    // Check connection status every 5 seconds
+    const intervalId = setInterval(checkConnection, 5000);
+    
+    return () => clearInterval(intervalId);
   }, []);
   
   // Handle connect wallet
@@ -28,11 +37,17 @@ const ConnectWallet: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
+      console.log("Connect button clicked");
+      
+      // Add a small delay to prevent immediate state updates
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       const account = await connectWallet();
+      console.log("Successfully connected:", account);
       setAddress(account);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error connecting wallet:', err);
-      setError('Failed to connect wallet. Please try again.');
+      setError(err.message || 'Failed to connect wallet. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -43,11 +58,14 @@ const ConnectWallet: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
+      console.log("Disconnect button clicked");
+      
       await disconnectWallet();
       setAddress(null);
-    } catch (err) {
+      console.log("Wallet disconnected");
+    } catch (err: any) {
       console.error('Error disconnecting wallet:', err);
-      setError('Failed to disconnect wallet. Please try again.');
+      setError(err.message || 'Failed to disconnect wallet. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -86,7 +104,15 @@ const ConnectWallet: React.FC = () => {
       )}
       
       {error && (
-        <div className="text-red-500 text-sm mt-2">{error}</div>
+        <div className="absolute top-20 mt-4 p-3 bg-red-900 text-red-200 rounded-md max-w-md mx-auto left-0 right-0 text-center">
+          {error}
+          <button 
+            className="ml-2 text-white underline"
+            onClick={() => setError(null)}
+          >
+            Dismiss
+          </button>
+        </div>
       )}
     </div>
   );
