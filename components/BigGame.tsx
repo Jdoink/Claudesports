@@ -1,9 +1,9 @@
-// components/BigGame.tsx - Fixed odds display
+// components/BigGame.tsx - Fixed property name
 import React, { useEffect, useState } from 'react';
 import { getBigGame, Market, getCurrentNetworkId } from '@/lib/overtimeApi';
 
 // Chain names mapping
-const CHAIN_NAMES: {[key: number]: string} = {
+const CHAIN_NAMES = {
   8453: 'Base',
   10: 'Optimism',
   42161: 'Arbitrum'
@@ -13,29 +13,19 @@ const BigGame: React.FC = () => {
   const [game, setGame] = useState<Market | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [networkId, setNetworkId] = useState<number>(8453); // Default to Base
+  const [networkId, setNetworkId] = useState<number>(10); // Default to Optimism
   
   useEffect(() => {
     const fetchBigGame = async () => {
       try {
         setLoading(true);
-        setError(null);
         const bigGame = await getBigGame();
         setGame(bigGame);
         setNetworkId(getCurrentNetworkId());
-        
-        // Debug log to check the odds values
-        if (bigGame) {
-          console.log('Game odds debug:', {
-            homeOdds: bigGame.homeOdds,
-            awayOdds: bigGame.awayOdds,
-            oddsArray: bigGame.odds
-          });
-        }
-        
+        setError(null);
       } catch (err) {
         setError('Failed to load the big game. Please try again later.');
-        console.error('Error fetching big game:', err);
+        console.error(err);
       } finally {
         setLoading(false);
       }
@@ -50,29 +40,12 @@ const BigGame: React.FC = () => {
   }, []);
   
   // Format the odds to be more readable American format
-  const formatOdds = (odds: number | undefined): string => {
-    // If odds are not available or invalid, return placeholder
-    if (odds === undefined || isNaN(odds)) {
-      // Check if we have odds array from the API
-      if (game?.odds && game.odds.length > 0) {
-        // Try to use the odds from the odds array instead
-        return formatAmericanOdds(game.odds[0].american, game.odds[1].american);
-      }
-      return 'N/A'; // Fallback if no odds are available
-    }
-    
-    // Format regular decimal odds to American format
+  const formatOdds = (odds: number) => {
     if (odds >= 2) {
       return `+${Math.round((odds - 1) * 100)}`;
     } else {
       return `-${Math.round(100 / (odds - 1))}`;
     }
-  };
-  
-  // Format directly from American odds format if available
-  const formatAmericanOdds = (homeAmerican: number, awayAmerican: number): string => {
-    // This just returns the American odds as they are already in the correct format
-    return homeAmerican.toString();
   };
   
   // Format date from timestamp
@@ -90,7 +63,7 @@ const BigGame: React.FC = () => {
   
   // Get network name from ID
   const getNetworkName = (id: number) => {
-    return CHAIN_NAMES[id] || `Chain ${id}`;
+    return CHAIN_NAMES[id as keyof typeof CHAIN_NAMES] || `Chain ${id}`;
   };
   
   // Get network color
@@ -101,25 +74,6 @@ const BigGame: React.FC = () => {
       case 42161: return 'bg-indigo-600'; // Arbitrum
       default: return 'bg-gray-600';
     }
-  };
-  
-  // Get odds directly from the odds array
-  const getOdds = (position: 'home' | 'away'): string => {
-    if (!game) return 'N/A';
-    
-    // Check if we have the odds array
-    if (game.odds && game.odds.length >= 2) {
-      // Home is index 0, Away is index 1
-      const index = position === 'home' ? 0 : 1;
-      const americanOdds = game.odds[index].american;
-      
-      // Return the formatted American odds
-      return americanOdds.toString();
-    }
-    
-    // Fallback to the older format
-    const odds = position === 'home' ? game.homeOdds : game.awayOdds;
-    return formatOdds(odds);
   };
   
   if (loading) {
@@ -156,7 +110,7 @@ const BigGame: React.FC = () => {
             <div className="bg-gray-800 p-4 rounded-lg h-full flex flex-col justify-between">
               <h3 className="text-xl font-bold mb-2">{game.homeTeam}</h3>
               <div className="bg-yellow-500 text-black font-bold text-xl py-2 px-4 rounded-md inline-block animate-pulse">
-                {getOdds('home')}
+                {formatOdds(game.homeOdds)}
               </div>
             </div>
           </div>
@@ -166,7 +120,7 @@ const BigGame: React.FC = () => {
             <div className="text-yellow-500 font-bold text-xl mb-2">VS</div>
             <div className="text-sm text-gray-400">{formatGameTime(game.maturity)}</div>
             <div className="mt-2 bg-gray-800 px-3 py-1 rounded-full text-xs">
-              {game.sport.toUpperCase()}
+              {game.category || game.sport.toUpperCase()}
             </div>
             <div className={`mt-2 ${getNetworkColor(networkId)} px-3 py-1 rounded-full text-xs flex items-center`}>
               {getNetworkName(networkId)} Chain
@@ -178,7 +132,7 @@ const BigGame: React.FC = () => {
             <div className="bg-gray-800 p-4 rounded-lg h-full flex flex-col justify-between">
               <h3 className="text-xl font-bold mb-2">{game.awayTeam}</h3>
               <div className="bg-yellow-500 text-black font-bold text-xl py-2 px-4 rounded-md inline-block animate-pulse">
-                {getOdds('away')}
+                {formatOdds(game.awayOdds)}
               </div>
             </div>
           </div>
