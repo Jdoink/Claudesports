@@ -1,4 +1,4 @@
-// components/BettingForm.tsx - Fixed to match the displayed game
+// components/BettingForm.tsx - Production version
 import React, { useState, useEffect } from 'react';
 import { isWalletConnected, getConnectedAccount } from '@/lib/web3';
 import { Market, placeBet } from '@/lib/overtimeApi';
@@ -34,6 +34,13 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     
     return () => clearInterval(intervalId);
   }, []);
+
+  // Reset form when game changes
+  useEffect(() => {
+    setSelectedTeam(null);
+    setBetAmount('');
+    setBetResult(null);
+  }, [game?.gameId]);
 
   // Predefined bet amounts
   const predefinedAmounts = [10, 50, 100, 500];
@@ -117,7 +124,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     );
   }
 
-  // Format odds for display
+  // Format odds for display (American format)
   const formatOdds = (odds: number) => {
     if (odds >= 2) {
       return `+${Math.round((odds - 1) * 100)}`;
@@ -126,16 +133,17 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     }
   };
 
-  // Add a demo notification for fallback games
-  const isDemo = game.isDemo || game.address === "0x0000000000000000000000000000000000000000";
+  // Calculate potential winnings
+  const calculateWinnings = () => {
+    if (!selectedTeam || !betAmount || parseFloat(betAmount) <= 0) return 0;
+    const odds = selectedTeam === 'home' ? game.homeOdds : game.awayOdds;
+    return parseFloat(betAmount) * odds;
+  };
 
   return (
     <div className="bg-gray-900 rounded-xl overflow-hidden shadow-2xl mb-8 border-2 border-yellow-500">
       <div className="bg-gradient-to-r from-indigo-600 via-purple-500 to-indigo-600 text-white p-3 text-center">
         <h2 className="text-2xl font-bold">Place Your Bet</h2>
-        {isDemo && (
-          <p className="text-sm bg-red-600 rounded px-2 py-1 mt-1 inline-block">DEMO MODE - No real bets</p>
-        )}
       </div>
       
       <form onSubmit={handleSubmit} className="p-6 text-white">
@@ -209,11 +217,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
           <div className="mb-6 p-3 bg-gray-800 rounded-lg">
             <p className="text-gray-400 text-sm">Potential Winnings:</p>
             <p className="text-xl font-medium text-green-400">
-              $
-              {(
-                parseFloat(betAmount) * 
-                (selectedTeam === 'home' ? game.homeOdds : game.awayOdds)
-              ).toFixed(2)} USDC
+              ${calculateWinnings().toFixed(2)} USDC
             </p>
           </div>
         )}
