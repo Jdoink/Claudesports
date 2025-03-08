@@ -1,7 +1,14 @@
-// components/BettingForm.tsx - Using real API data for odds
+// components/BettingForm.tsx - With correct odds access
 import React, { useState, useEffect } from 'react';
 import { isWalletConnected, getConnectedAccount } from '@/lib/web3';
-import { Market, placeBet, formatAmericanOdds } from '@/lib/overtimeApi';
+import { Market, placeBet } from '@/lib/overtimeApi';
+
+// Define an interface for the odds structure in the API
+interface OddsData {
+  american: number;
+  decimal: number;
+  normalizedImplied: number;
+}
 
 interface BettingFormProps {
   game: Market | null;
@@ -14,6 +21,8 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
   const [betAmount, setBetAmount] = useState<string>('');
   const [isPlacingBet, setIsPlacingBet] = useState<boolean>(false);
   const [betResult, setBetResult] = useState<{ success: boolean; message: string; txHash?: string } | null>(null);
+  const [homeOdds, setHomeOdds] = useState<OddsData | null>(null);
+  const [awayOdds, setAwayOdds] = useState<OddsData | null>(null);
   
   // Check wallet connection status
   useEffect(() => {
@@ -35,12 +44,25 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     return () => clearInterval(intervalId);
   }, []);
 
-  // Reset form when game changes
+  // Update odds when game changes
   useEffect(() => {
     if (game?.gameId) {
+      // Reset form
       setSelectedTeam(null);
       setBetAmount('');
       setBetResult(null);
+      
+      // Extract odds from the correct nested structure
+      if (game.odds && Array.isArray(game.odds) && game.odds.length >= 2) {
+        setHomeOdds(game.odds[0]);
+        setAwayOdds(game.odds[1]);
+        console.log("Betting form - Home odds:", game.odds[0]);
+        console.log("Betting form - Away odds:", game.odds[1]);
+      } else {
+        console.warn("Odds data not available in the expected format:", game?.odds);
+        setHomeOdds(null);
+        setAwayOdds(null);
+      }
     }
   }, [game?.gameId]);
 
@@ -132,15 +154,29 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     );
   }
 
-  // Calculate potential winnings using the decimal odds directly
+  // Format American odds for display
+  const formatAmericanOdds = (odds: OddsData | null): string => {
+    if (!odds || !odds.american || isNaN(odds.american)) {
+      return 'N/A';
+    }
+    
+    const americanOdds = odds.american;
+    return americanOdds > 0 ? `+${Math.round(americanOdds)}` : `${Math.round(americanOdds)}`;
+  };
+
+  // Calculate potential winnings using the decimal odds from the nested structure
   const calculateWinnings = () => {
-    if (!selectedTeam || !betAmount || parseFloat(betAmount) <= 0) return 0;
+    if (!selectedTeam || !betAmount || parseFloat(betAmount) <= 0) {
+      return 0;
+    }
     
-    const odds = selectedTeam === 'home' ? game.homeOdds : game.awayOdds;
-    if (!odds || isNaN(odds) || odds <= 0) return 0;
+    const odds = selectedTeam === 'home' ? homeOdds : awayOdds;
+    if (!odds || !odds.decimal || isNaN(odds.decimal) || odds.decimal <= 0) {
+      return 0;
+    }
     
-    // For decimal odds, the winnings are: bet amount × decimal odds
-    return parseFloat(betAmount) * odds;
+    // Use the decimal odds to calculate winnings
+    return parseFloat(betAmount) * odds.decimal;
   };
 
   return (
@@ -165,7 +201,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             >
               <div className="font-bold mb-1">{game.homeTeam}</div>
               <div className="text-yellow-500 font-medium">
-                {formatAmericanOdds(game.homeOdds)}
+                {formatAmericanOdds(homeOdds)}
               </div>
             </button>
             
@@ -180,7 +216,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             >
               <div className="font-bold mb-1">{game.awayTeam}</div>
               <div className="text-yellow-500 font-medium">
-                {formatAmericanOdds(game.awayOdds)}
+                {formatAmericanOdds(awayOdds)}
               </div>
             </button>
           </div>
