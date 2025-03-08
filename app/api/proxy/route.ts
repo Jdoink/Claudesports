@@ -14,9 +14,12 @@ export async function GET(request: Request) {
     console.log(`Proxying GET request to: ${url}`);
     
     const response = await fetch(url, {
+      method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Origin': 'https://overtimemarketsv2.xyz',
+        'Referer': 'https://overtimemarketsv2.xyz/',
       },
       next: { revalidate: 60 } // Cache for 60 seconds
     });
@@ -33,12 +36,15 @@ export async function GET(request: Request) {
     }
 
     const data = await response.json();
-    console.log(`Proxy GET success, data length: ${JSON.stringify(data).length} characters`);
+    console.log(`Proxy GET success, data snippet:`, JSON.stringify(data).substring(0, 200) + '...');
     
     return new Response(JSON.stringify(data), {
       headers: { 
         'Content-Type': 'application/json',
-        'Cache-Control': 'max-age=60' // Cache for 60 seconds
+        'Cache-Control': 'max-age=60', // Cache for 60 seconds
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
       }
     });
   } catch (error) {
@@ -69,59 +75,97 @@ export async function POST(request: Request) {
     const body = await request.json();
     
     console.log(`Proxying POST request to: ${url}`);
-    console.log('Request body preview:', JSON.stringify(body).substring(0, 200) + '...');
+    console.log('Request body:', JSON.stringify(body));
     
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Origin': 'https://overtimemarketsv2.xyz',
+        'Referer': 'https://overtimemarketsv2.xyz/'
       },
       body: JSON.stringify(body)
     });
 
-    if (!response.ok) {
-      console.error(`Target API POST returned status: ${response.status} - ${response.statusText}`);
-      try {
-        // Try to get the error message from the response
-        const errorData = await response.text();
-        console.error('Error response:', errorData);
-        
-        return new Response(JSON.stringify({ 
-          error: `Target API returned status: ${response.status}`,
-          message: response.statusText,
-          details: errorData
-        }), {
-          status: response.status,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      } catch (parseError) {
-        return new Response(JSON.stringify({ 
-          error: `Target API returned status: ${response.status}`,
-          message: response.statusText
-        }), {
-          status: response.status,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
+    // Try to get response text regardless of status
+    let responseText = '';
+    try {
+      responseText = await response.text();
+    } catch (textError) {
+      console.error('Error getting response text:', textError);
     }
 
-    const data = await response.json();
-    console.log(`Proxy POST success, response preview:`, JSON.stringify(data).substring(0, 200) + '...');
+    if (!response.ok) {
+      console.error(`Target API POST returned status: ${response.status} - ${response.statusText}`);
+      console.error('Error response:', responseText);
+      
+      return new Response(JSON.stringify({ 
+        error: `Target API returned status: ${response.status}`,
+        message: response.statusText,
+        responseText: responseText
+      }), {
+        status: 500, // Return 500 to our client to prevent cascading errors
+        headers: { 
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        }
+      });
+    }
+
+    let data = {};
+    try {
+      // Try to parse the response as JSON
+      if (responseText) {
+        data = JSON.parse(responseText);
+      }
+    } catch (parseError) {
+      console.error('Error parsing response as JSON:', parseError);
+      console.error('Raw response:', responseText);
+      
+      // If we can't parse as JSON, return the raw text
+      return new Response(JSON.stringify({ 
+        error: 'Failed to parse response as JSON',
+        rawResponse: responseText
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    console.log(`Proxy POST success, response:`, JSON.stringify(data).substring(0, 200) + '...');
     
     return new Response(JSON.stringify(data), {
       headers: { 
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
       }
     });
   } catch (error) {
     console.error('Proxy POST error:', error);
     return new Response(JSON.stringify({ 
-      error: 'Failed to fetch from the target URL',
+      error: 'Failed to process POST request',
       message: error instanceof Error ? error.message : String(error)
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
   }
+}
+
+// Handle OPTIONS requests for CORS preflight
+export async function OPTIONS(request: Request) {
+  return new Response(null, {
+    status: 204, // No content
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400', // 24 hours
+    }
+  });
 }
