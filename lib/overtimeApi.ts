@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Updated with correct API endpoints and error handling
+// lib/overtimeApi.ts - Using only real data from Overtime Markets API
 // Types for Overtime/Thales markets based on official documentation
 export interface Market {
   address: string;
@@ -108,96 +108,37 @@ async function fetchApi(url: string): Promise<any> {
 }
 
 /**
- * Get all markets from a specific network
- * @param networkId Network ID (10 for Optimism, 42161 for Arbitrum, etc)
- * @returns Array of markets or empty array if failed
+ * Try multiple API endpoint formats to find the working one
+ * @param networkId Network ID to fetch markets for
+ * @returns Array of markets or empty array if all endpoints fail
  */
 async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
-  try {
-    // Updated API endpoint based on the documentation
-    const url = `https://overtimemarkets.xyz/api/v2/networks/${networkId}/markets?status=open`;
-    
-    const data = await fetchApi(url);
-    
-    if (!data) {
-      console.log(`No data returned for network ${networkId}`);
-      return [];
-    }
-    
-    // Process the data based on the API response structure
-    let markets: Market[] = [];
-    
-    // If API returns an array, use it directly
-    if (Array.isArray(data)) {
-      markets = data;
-    } 
-    // If API returns an object with sports/leagues structure
-    else if (typeof data === 'object') {
-      Object.keys(data).forEach(sport => {
-        if (typeof data[sport] === 'object') {
-          Object.keys(data[sport]).forEach(leagueId => {
-            if (Array.isArray(data[sport][leagueId])) {
-              // Map each market and ensure it has the networkId property
-              const leagueMarkets = data[sport][leagueId].map((market: any) => ({
-                ...market,
-                networkId: networkId
-              }));
-              markets = markets.concat(leagueMarkets);
-            }
-          });
-        }
-      });
-    }
-    
-    console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId]}`);
-    return markets;
-  } catch (error) {
-    console.error(`Error getting markets for network ${networkId}:`, error);
-    return [];
-  }
-}
-
-/**
- * Try alternative API endpoint formats if the primary one fails
- * @param networkId Network ID to fetch markets for
- * @returns Array of markets
- */
-async function tryAlternativeEndpoints(networkId: number): Promise<Market[]> {
   // List of potential API formats to try
   const endpointFormats = [
-    // Primary format from your latest code
-    `https://overtimemarkets.xyz/api/v2/networks/${networkId}/markets?status=open`,
-    // Alternative formats based on your screenshots
     `https://api.overtimemarkets.xyz/v2/networks/${networkId}/markets?status=open`,
-    `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/markets`,
-    // Try with a proxy if direct calls are blocked by CORS
+    `https://overtimemarkets.xyz/api/v2/networks/${networkId}/markets?status=open`,
     `/api/proxy?url=${encodeURIComponent(`https://api.overtimemarkets.xyz/v2/networks/${networkId}/markets?status=open`)}`
   ];
 
   for (const endpoint of endpointFormats) {
-    console.log(`Trying endpoint: ${endpoint}`);
     try {
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      });
+      console.log(`Trying endpoint: ${endpoint}`);
+      const data = await fetchApi(endpoint);
       
-      if (response.ok) {
-        const data = await response.json();
+      if (data) {
         let markets: Market[] = [];
         
-        // Process based on response structure
+        // Process the data based on the API response structure
         if (Array.isArray(data)) {
+          // If API returns an array, use it directly
           markets = data.map(market => ({...market, networkId}));
         } else if (typeof data === 'object') {
-          // Handle structured data format
+          // If API returns an object with sports/leagues structure
           Object.keys(data).forEach(sport => {
             if (typeof data[sport] === 'object') {
               Object.keys(data[sport]).forEach(leagueId => {
                 if (Array.isArray(data[sport][leagueId])) {
+                  // Map each market and ensure it has the networkId property
                   const leagueMarkets = data[sport][leagueId].map((market: any) => ({
                     ...market,
                     networkId: networkId
@@ -219,88 +160,9 @@ async function tryAlternativeEndpoints(networkId: number): Promise<Market[]> {
     }
   }
   
-  // If we couldn't get markets from any endpoint, use mock data as fallback
-  console.log(`Couldn't fetch markets from any endpoint for network ${networkId}, using mock data`);
-  return createMockMarkets(networkId);
-}
-
-/**
- * Create mock market data for testing when API is unavailable
- * @param networkId Network ID
- * @returns Array of mock markets
- */
-function createMockMarkets(networkId: number): Market[] {
-  const now = Math.floor(Date.now() / 1000);
-  const tomorrow = now + 24 * 60 * 60;
-  
-  // Create some mock markets with realistic data
-  return [
-    {
-      address: "0x1234567890123456789012345678901234567890",
-      gameId: "0x3430343338353400000000000000000000000000000000000000000000000000",
-      sport: "Soccer",
-      sportId: 1,
-      typeId: 0,
-      maturity: tomorrow,
-      status: 0,
-      statusCode: "open",
-      homeTeam: "Manchester United",
-      awayTeam: "Liverpool",
-      homeOdds: 2.2,
-      awayOdds: 3.1,
-      drawOdds: 3.5,
-      leagueId: 39,
-      leagueName: "Premier League",
-      networkId: networkId,
-      odds: [
-        {
-          american: 120,
-          decimal: 2.2,
-          normalizedImplied: 0.45
-        },
-        {
-          american: 210,
-          decimal: 3.1,
-          normalizedImplied: 0.32
-        },
-        {
-          american: 250,
-          decimal: 3.5,
-          normalizedImplied: 0.29
-        }
-      ]
-    },
-    {
-      address: "0x0987654321098765432109876543210987654321",
-      gameId: "0x3430343338353401000000000000000000000000000000000000000000000000",
-      sport: "Basketball",
-      sportId: 2,
-      typeId: 0,
-      maturity: tomorrow + 3600,
-      status: 0,
-      statusCode: "open",
-      homeTeam: "LA Lakers",
-      awayTeam: "Boston Celtics",
-      homeOdds: 1.9,
-      awayOdds: 2.1,
-      drawOdds: 0,
-      leagueId: 5,
-      leagueName: "NBA",
-      networkId: networkId,
-      odds: [
-        {
-          american: -110,
-          decimal: 1.9,
-          normalizedImplied: 0.53
-        },
-        {
-          american: 110,
-          decimal: 2.1,
-          normalizedImplied: 0.47
-        }
-      ]
-    }
-  ];
+  // If all endpoints fail, return empty array
+  console.error(`Couldn't fetch markets from any endpoint for network ${networkId}`);
+  return [];
 }
 
 /**
@@ -312,13 +174,7 @@ async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networ
   const networks = [NETWORK_IDS.BASE, NETWORK_IDS.OPTIMISM, NETWORK_IDS.ARBITRUM];
   
   for (const networkId of networks) {
-    // First try standard endpoint
-    let markets = await getMarketsForNetwork(networkId);
-    
-    // If standard endpoint fails, try alternatives
-    if (markets.length === 0) {
-      markets = await tryAlternativeEndpoints(networkId);
-    }
+    const markets = await getMarketsForNetwork(networkId);
     
     if (markets.length > 0) {
       console.log(`Using ${markets.length} markets from ${CHAIN_NAMES[networkId]}`);
@@ -326,9 +182,8 @@ async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networ
     }
   }
   
-  console.log("No markets found on any network, using mock data on Base");
-  const mockMarkets = createMockMarkets(NETWORK_IDS.BASE);
-  return { markets: mockMarkets, networkId: NETWORK_IDS.BASE };
+  console.error("No markets found on any network");
+  return { markets: [], networkId: NETWORK_IDS.BASE };
 }
 
 /**
@@ -365,9 +220,7 @@ export async function getActiveMarkets(): Promise<Market[]> {
     console.error('Failed to fetch active markets:', error);
     
     // Return cached data if available, otherwise empty array
-    return marketsCache.markets.length > 0 
-      ? marketsCache.markets 
-      : createMockMarkets(NETWORK_IDS.BASE); // Return mock data as fallback
+    return marketsCache.markets.length > 0 ? marketsCache.markets : [];
   }
 }
 
@@ -408,10 +261,7 @@ export async function getBigGame(): Promise<Market | null> {
     return topMarket;
   } catch (error) {
     console.error('Failed to get the big game:', error);
-    
-    // Return mock data if no real data is available
-    const mockMarkets = createMockMarkets(NETWORK_IDS.BASE);
-    return mockMarkets[0];
+    return null;
   }
 }
 
@@ -449,8 +299,8 @@ export async function getQuote(
     
     // Try multiple API endpoint formats for quote
     const endpoints = [
-      `https://overtimemarkets.xyz/api/v2/networks/${networkId}/quote`,
       `https://api.overtimemarkets.xyz/v2/networks/${networkId}/quote`,
+      `https://overtimemarkets.xyz/api/v2/networks/${networkId}/quote`,
       `/api/proxy?url=${encodeURIComponent(`https://api.overtimemarkets.xyz/v2/networks/${networkId}/quote`)}`
     ];
     
@@ -474,27 +324,10 @@ export async function getQuote(
       }
     }
     
-    // If all endpoints fail, return mock quote data
-    return {
-      quoteData: {
-        totalQuote: {
-          decimal: market.odds ? market.odds[position].decimal : (position === 0 ? market.homeOdds : market.awayOdds),
-          american: market.odds ? market.odds[position].american : (position === 0 ? (market.homeOdds-1)*100 : (market.awayOdds-1)*100)
-        }
-      }
-    };
+    throw new Error("Failed to get quote from any of the API endpoints");
   } catch (error) {
     console.error('Error getting quote:', error);
-    
-    // Return mock quote
-    return {
-      quoteData: {
-        totalQuote: {
-          decimal: position === 0 ? market.homeOdds : market.awayOdds,
-          american: position === 0 ? (market.homeOdds-1)*100 : (market.awayOdds-1)*100
-        }
-      }
-    };
+    throw error; // Re-throw to handle in the UI
   }
 }
 
