@@ -9,8 +9,8 @@ export async function POST(request: Request) {
     // Get the network ID from the request or use a default
     const networkId = body.networkId || 8453; // Default to Base if not specified
     
-    // Construct the URL for the Overtime Markets API
-    const apiUrl = `https://api.overtimemarkets.xyz/v2/networks/${networkId}/quote`;
+    // Construct the URL for the Overtime Markets API with the CORRECT domain
+    const apiUrl = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/quote`;
     
     console.log('Sending request to:', apiUrl);
     console.log('Request body:', JSON.stringify(body.tradeData, null, 2));
