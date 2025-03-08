@@ -1,9 +1,9 @@
-// components/BigGame.tsx - Fixed property name
+// components/BigGame.tsx - Fixed property name and category issue
 import React, { useEffect, useState } from 'react';
 import { getBigGame, Market, getCurrentNetworkId } from '@/lib/overtimeApi';
 
 // Chain names mapping
-const CHAIN_NAMES = {
+const CHAIN_NAMES: {[key: number]: string} = {
   8453: 'Base',
   10: 'Optimism',
   42161: 'Arbitrum'
@@ -63,7 +63,7 @@ const BigGame: React.FC = () => {
   
   // Get network name from ID
   const getNetworkName = (id: number) => {
-    return CHAIN_NAMES[id as keyof typeof CHAIN_NAMES] || `Chain ${id}`;
+    return CHAIN_NAMES[id] || `Chain ${id}`;
   };
   
   // Get network color
@@ -120,7 +120,7 @@ const BigGame: React.FC = () => {
             <div className="text-yellow-500 font-bold text-xl mb-2">VS</div>
             <div className="text-sm text-gray-400">{formatGameTime(game.maturity)}</div>
             <div className="mt-2 bg-gray-800 px-3 py-1 rounded-full text-xs">
-              {game.category || game.sport.toUpperCase()}
+              {game.sport.toUpperCase()}
             </div>
             <div className={`mt-2 ${getNetworkColor(networkId)} px-3 py-1 rounded-full text-xs flex items-center`}>
               {getNetworkName(networkId)} Chain
