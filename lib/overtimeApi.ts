@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Added data debugging
+// lib/overtimeApi.ts - Fixed with correct API format
 // Types for Overtime/Thales markets based on official documentation
 export interface Market {
   address: string;
@@ -76,6 +76,19 @@ let marketsCache: {
 const CACHE_EXPIRATION = 5 * 60 * 1000;
 
 /**
+ * Format American odds from a number value
+ * @param americanOdds American odds as a number
+ * @returns Formatted string with +/- prefix
+ */
+export function formatAmericanOdds(americanOdds: number): string {
+  if (!americanOdds || isNaN(americanOdds)) {
+    return 'N/A';
+  }
+  
+  return americanOdds > 0 ? `+${Math.round(americanOdds)}` : `${Math.round(americanOdds)}`;
+}
+
+/**
  * Fetch data from the Overtime API with error handling
  * @param url API endpoint URL
  * @returns Promise with parsed data or null if failed
@@ -112,7 +125,7 @@ async function fetchApi(url: string): Promise<any> {
  */
 async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
   try {
-    // Correct API endpoint from the documentation 
+    // API endpoint
     const url = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/markets`;
     
     console.log(`Attempting to fetch markets from network ${networkId} using URL: ${url}`);
@@ -139,42 +152,10 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
     });
     
     console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
+    
     if (markets.length > 0) {
       // Log the first market to inspect its data structure
-      console.log('First market data structure:', markets[0]);
-      
-      // DEBUG: Check all markets for valid odds
-      let invalidOddsCount = 0;
-      markets.forEach((market, index) => {
-        if (!market.homeOdds || !market.awayOdds || isNaN(market.homeOdds) || isNaN(market.awayOdds)) {
-          invalidOddsCount++;
-          console.log(`Market ${index} has invalid odds:`, { 
-            homeTeam: market.homeTeam,
-            awayTeam: market.awayTeam,
-            homeOdds: market.homeOdds,
-            awayOdds: market.awayOdds
-          });
-        }
-      });
-      
-      if (invalidOddsCount > 0) {
-        console.log(`WARNING: Found ${invalidOddsCount} markets with invalid odds out of ${markets.length} total markets`);
-      }
-      
-      // Look for markets with valid odds
-      const validMarkets = markets.filter(m => 
-        m.homeOdds && 
-        m.awayOdds && 
-        !isNaN(m.homeOdds) && 
-        !isNaN(m.awayOdds) && 
-        m.homeOdds > 1 && 
-        m.awayOdds > 1
-      );
-      
-      console.log(`Found ${validMarkets.length} markets with valid odds`);
-      if (validMarkets.length > 0) {
-        console.log('Sample valid market:', validMarkets[0]);
-      }
+      console.log('Sample market data:', markets[0]);
     }
     
     return markets;
@@ -257,24 +238,9 @@ export async function getBigGame(): Promise<Market | null> {
       return null;
     }
     
-    // Filter for markets with valid odds
-    const validMarkets = markets.filter(m => 
-      m.homeOdds && 
-      m.awayOdds && 
-      !isNaN(m.homeOdds) && 
-      !isNaN(m.awayOdds) && 
-      m.homeOdds > 1 && 
-      m.awayOdds > 1
-    );
-    
-    console.log(`Found ${validMarkets.length} markets with valid odds out of ${markets.length} total markets`);
-    
-    // If we have valid markets, prioritize those
-    const marketsToUse = validMarkets.length > 0 ? validMarkets : markets;
-    
     // Find market with highest liquidity/interest
     // Note: sorting logic may need to be adjusted based on actual data structure
-    const sortedMarkets = [...marketsToUse].sort((a, b) => {
+    const sortedMarkets = [...markets].sort((a, b) => {
       // Sort by status (prioritize active games)
       const statusDiff = (a.status || 0) - (b.status || 0);
       if (statusDiff !== 0) return statusDiff;
@@ -292,24 +258,6 @@ export async function getBigGame(): Promise<Market | null> {
     
     const topMarket = sortedMarkets[0];
     console.log('Selected top market:', topMarket);
-    
-    // Ensure the market has valid odds - if not, try to fix them
-    if (topMarket) {
-      console.log('Top market odds check:');
-      console.log('homeOdds:', topMarket.homeOdds, typeof topMarket.homeOdds);
-      console.log('awayOdds:', topMarket.awayOdds, typeof topMarket.awayOdds);
-      
-      // If odds are missing or invalid, try to set default odds (1.9) for display purposes
-      if (!topMarket.homeOdds || isNaN(topMarket.homeOdds) || topMarket.homeOdds <= 1) {
-        console.log('Setting default homeOdds for display');
-        topMarket.homeOdds = 1.9;
-      }
-      
-      if (!topMarket.awayOdds || isNaN(topMarket.awayOdds) || topMarket.awayOdds <= 1) {
-        console.log('Setting default awayOdds for display');
-        topMarket.awayOdds = 1.9;
-      }
-    }
     
     return topMarket;
   } catch (error) {
@@ -333,7 +281,7 @@ export async function getQuote(
   networkId: number
 ): Promise<any> {
   try {
-    // Format the trade data according to the API
+    // Format the trade data according to the correct API format from the docs
     const tradeData = {
       buyInAmount: amount,
       tradeData: [{
@@ -343,16 +291,18 @@ export async function getQuote(
         maturity: market.maturity,
         status: market.status,
         line: market.line || 0,
-        playerId: market.playerId || "",
+        playerId: market.playerId || 0,
         position: position,
         odds: [market.homeOdds, market.awayOdds, market.drawOdds || 0],
-        combinedPositions: ["", "", ""]
-      }]
+        combinedPositions: [[], [], []],
+        live: false
+      }],
+      collateral: "USDC"  // Using USDC as default collateral
     };
     
-    console.log('Sending quote request to Overtime API:', JSON.stringify(tradeData, null, 2));
+    console.log('Sending quote request with data:', JSON.stringify(tradeData, null, 2));
     
-    // Use our own API proxy endpoint instead of calling the Overtime API directly
+    // Use our proxy endpoint to forward the request
     const response = await fetch('/api/quote', {
       method: 'POST',
       headers: {
@@ -411,7 +361,6 @@ export async function placeBet(
     const signer = await ethersProvider.getSigner();
     
     // Check that user is on the correct network - using ethers v6 syntax
-    // In ethers v6, chainId is accessed directly as a property
     const network = await ethersProvider.getNetwork();
     const chainId = Number(network.chainId);
     
@@ -447,7 +396,7 @@ export async function placeBet(
       throw new Error("Failed to get quote for this bet");
     }
     
-    // Get the expected payout from the quote
+    // Get the expected payout from the quote - this format is from the example API response
     const expectedPayout = quoteResult.quoteData.totalQuote.decimal || 0;
     
     // Approve USDC spending
