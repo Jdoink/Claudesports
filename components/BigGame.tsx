@@ -1,4 +1,4 @@
-// components/BigGame.tsx - Fixed property name and category issue
+// components/BigGame.tsx - Uses only real data from API
 import React, { useEffect, useState } from 'react';
 import { getBigGame, Market, getCurrentNetworkId } from '@/lib/overtimeApi';
 
@@ -13,19 +13,19 @@ const BigGame: React.FC = () => {
   const [game, setGame] = useState<Market | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [networkId, setNetworkId] = useState<number>(10); // Default to Optimism
+  const [networkId, setNetworkId] = useState<number>(8453); // Default to Base
   
   useEffect(() => {
     const fetchBigGame = async () => {
       try {
         setLoading(true);
+        setError(null);
         const bigGame = await getBigGame();
         setGame(bigGame);
         setNetworkId(getCurrentNetworkId());
-        setError(null);
       } catch (err) {
         setError('Failed to load the big game. Please try again later.');
-        console.error(err);
+        console.error('Error fetching big game:', err);
       } finally {
         setLoading(false);
       }
