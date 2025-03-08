@@ -1,4 +1,4 @@
-// components/BigGame.tsx - With network display
+// components/BigGame.tsx - Fixed property name
 import React, { useEffect, useState } from 'react';
 import { getBigGame, Market, getCurrentNetworkId } from '@/lib/overtimeApi';
 
@@ -13,7 +13,7 @@ const BigGame: React.FC = () => {
   const [game, setGame] = useState<Market | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [networkId, setNetworkId] = useState<number>(8453); // Default to Base
+  const [networkId, setNetworkId] = useState<number>(10); // Default to Optimism
   
   useEffect(() => {
     const fetchBigGame = async () => {
@@ -118,7 +118,7 @@ const BigGame: React.FC = () => {
           {/* VS section */}
           <div className="flex flex-col items-center">
             <div className="text-yellow-500 font-bold text-xl mb-2">VS</div>
-            <div className="text-sm text-gray-400">{formatGameTime(game.maturityDate)}</div>
+            <div className="text-sm text-gray-400">{formatGameTime(game.maturity)}</div>
             <div className="mt-2 bg-gray-800 px-3 py-1 rounded-full text-xs">
               {game.category || game.sport.toUpperCase()}
             </div>
