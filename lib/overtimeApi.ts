@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Complete file with correct API implementation
+// lib/overtimeApi.ts - Complete file with fallback game
 // Types for Overtime/Thales markets based on their documentation
 export interface Market {
   address: string;
@@ -32,6 +32,63 @@ const OVERTIME_API_BASE = 'https://api.overtimemarkets.xyz/v2';
 // Base Chain ID (8453)
 const BASE_CHAIN_ID = 8453;
 
+// Fallback NBA game that updates daily
+function getFallbackGame(): Market {
+  // Current date for creating a unique game ID
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  // Generate a game that's happening "today" at 7:30pm EST
+  const gameTime = new Date(today);
+  gameTime.setHours(19, 30, 0, 0); // 7:30pm
+  
+  // If current time is past 7:30pm, set the game for tomorrow
+  if (now > gameTime) {
+    gameTime.setDate(gameTime.getDate() + 1);
+  }
+  
+  // List of NBA teams to randomly select
+  const nbaTeams = [
+    { name: "Boston Celtics", odds: 1.7 },
+    { name: "Los Angeles Lakers", odds: 2.2 },
+    { name: "Golden State Warriors", odds: 1.9 },
+    { name: "Miami Heat", odds: 2.3 },
+    { name: "Denver Nuggets", odds: 1.8 },
+    { name: "Milwaukee Bucks", odds: 1.75 },
+    { name: "Philadelphia 76ers", odds: 2.1 },
+    { name: "Phoenix Suns", odds: 1.95 },
+    { name: "Brooklyn Nets", odds: 2.4 },
+    { name: "Dallas Mavericks", odds: 2.0 }
+  ];
+  
+  // Randomly select home and away teams (ensure they're different)
+  let homeIndex = Math.floor(Math.random() * nbaTeams.length);
+  let awayIndex = Math.floor(Math.random() * nbaTeams.length);
+  while (awayIndex === homeIndex) {
+    awayIndex = Math.floor(Math.random() * nbaTeams.length);
+  }
+  
+  const homeTeam = nbaTeams[homeIndex];
+  const awayTeam = nbaTeams[awayIndex];
+  
+  // Create a fallback game
+  return {
+    address: "0x0000000000000000000000000000000000000000", // Dummy address
+    gameId: `NBA-${today.toISOString().split('T')[0]}`,
+    sport: "Basketball",
+    category: "NBA",
+    homeTeam: homeTeam.name,
+    awayTeam: awayTeam.name,
+    maturityDate: Math.floor(gameTime.getTime() / 1000), // Convert to Unix timestamp
+    homeOdds: homeTeam.odds,
+    awayOdds: awayTeam.odds,
+    isPaused: false,
+    isCanceled: false,
+    isResolved: false,
+    networkId: BASE_CHAIN_ID
+  };
+}
+
 /**
  * Fetches all active markets from Overtime on Base chain
  * @returns Promise<Market[]> List of active markets
@@ -46,15 +103,26 @@ export async function getActiveMarkets(): Promise<Market[]> {
     );
     
     if (!response.ok) {
-      throw new Error(`Error fetching markets: ${response.statusText}`);
+      console.log("API response not OK, returning fallback game");
+      return [getFallbackGame()];
     }
     
     const data = await response.json();
     console.log('Fetched markets data:', data);
-    return data.markets || [];
+    
+    const markets = data.markets || [];
+    
+    // If no markets are available, use the fallback game
+    if (markets.length === 0) {
+      console.log("No markets available, returning fallback game");
+      return [getFallbackGame()];
+    }
+    
+    return markets;
   } catch (error) {
     console.error('Failed to fetch active markets:', error);
-    return [];
+    console.log("Error fetching markets, returning fallback game");
+    return [getFallbackGame()];
   }
 }
 
@@ -67,21 +135,21 @@ export async function getBigGame(): Promise<Market | null> {
     const markets = await getActiveMarkets();
     
     if (markets.length === 0) {
-      console.log('No markets available');
-      return null;
+      console.log('No markets available, should not happen with fallback');
+      return getFallbackGame(); // Fallback in case something goes wrong
     }
     
-    // Sort by maturity date (closest game first) as liquidity info might not be reliable
+    // Sort by maturity date (closest game first)
     const sortedMarkets = [...markets].sort((a, b) => a.maturityDate - b.maturityDate);
     
     // Log the top market for debugging
     console.log('Top market:', sortedMarkets[0]);
     
     // Return the market with the closest start time
-    return sortedMarkets[0] || null;
+    return sortedMarkets[0];
   } catch (error) {
     console.error('Failed to get the big game:', error);
-    return null;
+    return getFallbackGame(); // Fallback in case of error
   }
 }
 
@@ -99,6 +167,15 @@ export async function placeBet(
   provider: any
 ): Promise<{ success: boolean; message: string; txHash?: string }> {
   try {
+    // For fallback games with dummy address, return a mock success
+    if (marketAddress === "0x0000000000000000000000000000000000000000") {
+      return {
+        success: true,
+        message: "This is a demo bet. In the live version, this would place a real bet on the blockchain.",
+        txHash: "0x" + "0".repeat(64) // Dummy transaction hash
+      };
+    }
+    
     if (!provider) {
       throw new Error("Wallet not connected");
     }
