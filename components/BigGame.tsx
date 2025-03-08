@@ -1,4 +1,4 @@
-// components/BigGame.tsx - Uses only real data from API
+// components/BigGame.tsx - Fixed odds display
 import React, { useEffect, useState } from 'react';
 import { getBigGame, Market, getCurrentNetworkId } from '@/lib/overtimeApi';
 
@@ -23,6 +23,16 @@ const BigGame: React.FC = () => {
         const bigGame = await getBigGame();
         setGame(bigGame);
         setNetworkId(getCurrentNetworkId());
+        
+        // Debug log to check the odds values
+        if (bigGame) {
+          console.log('Game odds debug:', {
+            homeOdds: bigGame.homeOdds,
+            awayOdds: bigGame.awayOdds,
+            oddsArray: bigGame.odds
+          });
+        }
+        
       } catch (err) {
         setError('Failed to load the big game. Please try again later.');
         console.error('Error fetching big game:', err);
@@ -40,12 +50,29 @@ const BigGame: React.FC = () => {
   }, []);
   
   // Format the odds to be more readable American format
-  const formatOdds = (odds: number) => {
+  const formatOdds = (odds: number | undefined): string => {
+    // If odds are not available or invalid, return placeholder
+    if (odds === undefined || isNaN(odds)) {
+      // Check if we have odds array from the API
+      if (game?.odds && game.odds.length > 0) {
+        // Try to use the odds from the odds array instead
+        return formatAmericanOdds(game.odds[0].american, game.odds[1].american);
+      }
+      return 'N/A'; // Fallback if no odds are available
+    }
+    
+    // Format regular decimal odds to American format
     if (odds >= 2) {
       return `+${Math.round((odds - 1) * 100)}`;
     } else {
       return `-${Math.round(100 / (odds - 1))}`;
     }
+  };
+  
+  // Format directly from American odds format if available
+  const formatAmericanOdds = (homeAmerican: number, awayAmerican: number): string => {
+    // This just returns the American odds as they are already in the correct format
+    return homeAmerican.toString();
   };
   
   // Format date from timestamp
@@ -74,6 +101,25 @@ const BigGame: React.FC = () => {
       case 42161: return 'bg-indigo-600'; // Arbitrum
       default: return 'bg-gray-600';
     }
+  };
+  
+  // Get odds directly from the odds array
+  const getOdds = (position: 'home' | 'away'): string => {
+    if (!game) return 'N/A';
+    
+    // Check if we have the odds array
+    if (game.odds && game.odds.length >= 2) {
+      // Home is index 0, Away is index 1
+      const index = position === 'home' ? 0 : 1;
+      const americanOdds = game.odds[index].american;
+      
+      // Return the formatted American odds
+      return americanOdds.toString();
+    }
+    
+    // Fallback to the older format
+    const odds = position === 'home' ? game.homeOdds : game.awayOdds;
+    return formatOdds(odds);
   };
   
   if (loading) {
@@ -110,7 +156,7 @@ const BigGame: React.FC = () => {
             <div className="bg-gray-800 p-4 rounded-lg h-full flex flex-col justify-between">
               <h3 className="text-xl font-bold mb-2">{game.homeTeam}</h3>
               <div className="bg-yellow-500 text-black font-bold text-xl py-2 px-4 rounded-md inline-block animate-pulse">
-                {formatOdds(game.homeOdds)}
+                {getOdds('home')}
               </div>
             </div>
           </div>
@@ -132,7 +178,7 @@ const BigGame: React.FC = () => {
             <div className="bg-gray-800 p-4 rounded-lg h-full flex flex-col justify-between">
               <h3 className="text-xl font-bold mb-2">{game.awayTeam}</h3>
               <div className="bg-yellow-500 text-black font-bold text-xl py-2 px-4 rounded-md inline-block animate-pulse">
-                {formatOdds(game.awayOdds)}
+                {getOdds('away')}
               </div>
             </div>
           </div>
