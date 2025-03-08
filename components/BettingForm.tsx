@@ -1,4 +1,4 @@
-// components/BettingForm.tsx - Production version
+// components/BettingForm.tsx - Updated to remove isDemo references
 import React, { useState, useEffect } from 'react';
 import { isWalletConnected, getConnectedAccount } from '@/lib/web3';
 import { Market, placeBet } from '@/lib/overtimeApi';
@@ -37,9 +37,11 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
 
   // Reset form when game changes
   useEffect(() => {
-    setSelectedTeam(null);
-    setBetAmount('');
-    setBetResult(null);
+    if (game?.gameId) {
+      setSelectedTeam(null);
+      setBetAmount('');
+      setBetResult(null);
+    }
   }, [game?.gameId]);
 
   // Predefined bet amounts
