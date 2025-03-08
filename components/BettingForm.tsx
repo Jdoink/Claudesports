@@ -1,4 +1,4 @@
-// components/BettingForm.tsx - Updated for new Market structure
+// components/BettingForm.tsx - Fixed to match the displayed game
 import React, { useState, useEffect } from 'react';
 import { isWalletConnected, getConnectedAccount } from '@/lib/web3';
 import { Market, placeBet } from '@/lib/overtimeApi';
@@ -90,6 +90,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
       // Clear bet amount on success
       if (result.success) {
         setBetAmount('');
+        setSelectedTeam(null);
       }
     } catch (error) {
       console.error('Error placing bet:', error);
@@ -116,10 +117,25 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     );
   }
 
+  // Format odds for display
+  const formatOdds = (odds: number) => {
+    if (odds >= 2) {
+      return `+${Math.round((odds - 1) * 100)}`;
+    } else {
+      return `-${Math.round(100 / (odds - 1))}`;
+    }
+  };
+
+  // Add a demo notification for fallback games
+  const isDemo = game.isDemo || game.address === "0x0000000000000000000000000000000000000000";
+
   return (
     <div className="bg-gray-900 rounded-xl overflow-hidden shadow-2xl mb-8 border-2 border-yellow-500">
       <div className="bg-gradient-to-r from-indigo-600 via-purple-500 to-indigo-600 text-white p-3 text-center">
         <h2 className="text-2xl font-bold">Place Your Bet</h2>
+        {isDemo && (
+          <p className="text-sm bg-red-600 rounded px-2 py-1 mt-1 inline-block">DEMO MODE - No real bets</p>
+        )}
       </div>
       
       <form onSubmit={handleSubmit} className="p-6 text-white">
@@ -138,9 +154,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             >
               <div className="font-bold mb-1">{game.homeTeam}</div>
               <div className="text-yellow-500 font-medium">
-                {game.homeOdds >= 2 
-                  ? `+${Math.round((game.homeOdds - 1) * 100)}` 
-                  : `-${Math.round(100 / (game.homeOdds - 1))}`}
+                {formatOdds(game.homeOdds)}
               </div>
             </button>
             
@@ -155,9 +169,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             >
               <div className="font-bold mb-1">{game.awayTeam}</div>
               <div className="text-yellow-500 font-medium">
-                {game.awayOdds >= 2 
-                  ? `+${Math.round((game.awayOdds - 1) * 100)}` 
-                  : `-${Math.round(100 / (game.awayOdds - 1))}`}
+                {formatOdds(game.awayOdds)}
               </div>
             </button>
           </div>
@@ -232,6 +244,18 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             betResult.success ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'
           }`}>
             {betResult.message}
+            {betResult.txHash && betResult.txHash !== "0x" + "0".repeat(64) && (
+              <div className="mt-2">
+                <a 
+                  href={`https://basescan.org/tx/${betResult.txHash}`} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-blue-300 underline"
+                >
+                  View transaction on BaseScan
+                </a>
+              </div>
+            )}
           </div>
         )}
 
