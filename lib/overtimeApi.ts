@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Using only real Overtime Markets data
+// lib/overtimeApi.ts - Multi-chain support
 // Types for Overtime/Thales markets
 export interface Market {
   address: string;
@@ -29,51 +29,67 @@ export interface Market {
 // API endpoints for Overtime Markets
 const OVERTIME_API_V2 = 'https://api.overtimemarkets.xyz/v2';
 
-// Base Chain ID (8453)
-const BASE_CHAIN_ID = 8453;
-
-// Contract addresses on Base
-const CONTRACT_ADDRESSES = {
-  // Base Mainnet
-  USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-  OVERTIME_AMM: '0x80903Aa4d358542652c8D4B33cd942EA1Bf8fd41', 
-  SPORT_MARKETS_MANAGER: '0x3Ed830e92eFfE68C0d1216B2b5115B1bceBB087C',
+// Chain IDs for supported networks
+const CHAIN_IDS = {
+  BASE: 8453,
+  OPTIMISM: 10,
+  ARBITRUM: 42161
 };
 
-// In-memory cache with timestamp
+// Chain names for display
+const CHAIN_NAMES = {
+  [CHAIN_IDS.BASE]: 'Base',
+  [CHAIN_IDS.OPTIMISM]: 'Optimism',
+  [CHAIN_IDS.ARBITRUM]: 'Arbitrum'
+};
+
+// Contract addresses for each network
+const CONTRACT_ADDRESSES = {
+  // Base Mainnet
+  [CHAIN_IDS.BASE]: {
+    USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    OVERTIME_AMM: '0x80903Aa4d358542652c8D4B33cd942EA1Bf8fd41', 
+    SPORT_MARKETS_MANAGER: '0x3Ed830e92eFfE68C0d1216B2b5115B1bceBB087C',
+  },
+  // Optimism Mainnet
+  [CHAIN_IDS.OPTIMISM]: {
+    USDC: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
+    OVERTIME_AMM: '0xad41C77d99E282267C1492cdEFe528D7d5044253',
+    SPORT_MARKETS_MANAGER: '0x8606926e4c3Cfb9d4B6742A62e1923854F4026dc',
+  },
+  // Arbitrum Mainnet
+  [CHAIN_IDS.ARBITRUM]: {
+    USDC: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',
+    OVERTIME_AMM: '0x82872A82E70081D42f5c2610259324Bb463B2bC2',
+    SPORT_MARKETS_MANAGER: '0xb3E8C659CF95BeA8c81d8D06407C5c7A2D75B1BC',
+  }
+};
+
+// Cache for markets data with timestamp
 let marketsCache: {
   timestamp: number;
   markets: Market[];
+  networkId: number;
 } = {
   timestamp: 0,
-  markets: []
+  markets: [],
+  networkId: CHAIN_IDS.BASE // Default to Base
 };
 
-// Cache expiration in milliseconds (1 hour)
-const CACHE_EXPIRATION = 60 * 60 * 1000;
+// Cache expiration in milliseconds (15 minutes)
+const CACHE_EXPIRATION = 15 * 60 * 1000;
 
 /**
- * Fetches all active markets from Overtime on Base chain
- * @returns Promise<Market[]> List of active markets
+ * Fetches markets from a specific network
+ * @param networkId The chain ID to fetch markets from
+ * @returns Promise<Market[]> List of markets
  */
-export async function getActiveMarkets(): Promise<Market[]> {
+async function fetchMarketsForNetwork(networkId: number): Promise<Market[]> {
   try {
-    const now = Date.now();
+    console.log(`Fetching markets for network ${networkId} (${CHAIN_NAMES[networkId] || 'Unknown'})`);
     
-    // Check if cache is valid (not expired and has data)
-    if (
-      marketsCache.markets.length > 0 && 
-      now - marketsCache.timestamp < CACHE_EXPIRATION
-    ) {
-      console.log("Using cached markets data");
-      return marketsCache.markets;
-    }
-    
-    console.log("Fetching fresh markets data from Overtime API");
-    
-    // Use the V2 API endpoint with the Base chainId
-    const apiUrl = `${OVERTIME_API_V2}/markets?networkId=${BASE_CHAIN_ID}&isOpen=true`;
-    console.log(`Fetching from API: ${apiUrl}`);
+    const apiUrl = `${OVERTIME_API_V2}/markets?networkId=${networkId}&isOpen=true`;
+    console.log(`API URL: ${apiUrl}`);
     
     const response = await fetch(apiUrl, {
       headers: { 'Accept': 'application/json' },
@@ -81,28 +97,80 @@ export async function getActiveMarkets(): Promise<Market[]> {
     });
     
     if (!response.ok) {
-      throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+      console.error(`API returned status ${response.status} for network ${networkId}`);
+      return [];
     }
     
     const data = await response.json();
-    console.log('API response data:', data);
     
     if (!data.markets || !Array.isArray(data.markets)) {
-      throw new Error('Invalid API response format: missing markets array');
+      console.error(`Invalid API response format for network ${networkId}`);
+      return [];
     }
+    
+    console.log(`Found ${data.markets.length} markets on ${CHAIN_NAMES[networkId] || 'Unknown'}`);
+    return data.markets;
+  } catch (error) {
+    console.error(`Error fetching markets for network ${networkId}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Fetches markets from multiple networks, prioritizing in order
+ * @returns Promise<{ markets: Market[], networkId: number }> Markets and the network they came from
+ */
+async function fetchMarketsFromAllNetworks(): Promise<{ markets: Market[], networkId: number }> {
+  // Priority order: Base, Optimism, Arbitrum
+  const networks = [CHAIN_IDS.BASE, CHAIN_IDS.OPTIMISM, CHAIN_IDS.ARBITRUM];
+  
+  for (const networkId of networks) {
+    const markets = await fetchMarketsForNetwork(networkId);
+    
+    if (markets.length > 0) {
+      console.log(`Using markets from ${CHAIN_NAMES[networkId]}`);
+      return { markets, networkId };
+    }
+  }
+  
+  // No markets found on any network
+  console.log('No markets found on any network');
+  return { markets: [], networkId: CHAIN_IDS.BASE };
+}
+
+/**
+ * Fetches all active markets, trying multiple networks if needed
+ * @returns Promise<Market[]> List of active markets
+ */
+export async function getActiveMarkets(): Promise<Market[]> {
+  try {
+    const now = Date.now();
+    
+    // Check if cache is valid
+    if (
+      marketsCache.markets.length > 0 && 
+      now - marketsCache.timestamp < CACHE_EXPIRATION
+    ) {
+      console.log(`Using cached markets from ${CHAIN_NAMES[marketsCache.networkId]}`);
+      return marketsCache.markets;
+    }
+    
+    console.log("Cache expired or empty, fetching fresh data");
+    
+    // Fetch fresh data from multiple networks
+    const { markets, networkId } = await fetchMarketsFromAllNetworks();
     
     // Update cache
     marketsCache = {
       timestamp: now,
-      markets: data.markets
+      markets,
+      networkId
     };
     
-    console.log(`Fetched ${data.markets.length} markets from Overtime API`);
-    return data.markets;
+    return markets;
   } catch (error) {
-    console.error('Failed to fetch markets from Overtime API:', error);
-    // Return whatever is in the cache, even if expired
-    return marketsCache.markets;
+    console.error('Failed to fetch markets:', error);
+    return marketsCache.markets; // Return cached data even if expired
   }
 }
 
@@ -115,7 +183,7 @@ export async function getBigGame(): Promise<Market | null> {
     const markets = await getActiveMarkets();
     
     if (markets.length === 0) {
-      console.log('No markets available from Overtime API');
+      console.log('No markets available');
       return null;
     }
     
@@ -127,7 +195,7 @@ export async function getBigGame(): Promise<Market | null> {
     });
     
     const topMarket = sortedMarkets[0];
-    console.log('Top liquidity market:', topMarket);
+    console.log('Selected top market:', topMarket);
     
     return topMarket;
   } catch (error) {
@@ -137,9 +205,9 @@ export async function getBigGame(): Promise<Market | null> {
 }
 
 /**
- * Place a bet on a market using the Overtime Markets AMM contract
+ * Place a bet on a market
  * @param marketAddress The address of the market contract
- * @param amount The amount to bet in USDC (in decimal form, e.g. 10 for $10)
+ * @param amount The amount to bet in USDC
  * @param teamIndex 0 for home team, 1 for away team
  * @param provider The Ethereum provider from Coinbase Wallet
  */
@@ -174,17 +242,27 @@ export async function placeBet(
     const signer = await ethersProvider.getSigner();
     const userAddress = await signer.getAddress();
     
-    // Get chain ID to verify we're on Base
+    // Get chain ID
     const chainIdHex = await provider.request({ method: 'eth_chainId' });
     const chainId = parseInt(chainIdHex, 16);
     
-    if (chainId !== BASE_CHAIN_ID) {
-      throw new Error(`Please switch to Base chain. Current chain ID: ${chainId}`);
+    // Get network name for better error messages
+    const networkName = CHAIN_NAMES[chainId] || `Chain ID ${chainId}`;
+    
+    // Check if the chain is supported
+    if (!CONTRACT_ADDRESSES[chainId]) {
+      throw new Error(`Unsupported chain: ${networkName}. Please switch to ${CHAIN_NAMES[marketsCache.networkId]}.`);
+    }
+    
+    // If the user is on a different chain than the market
+    if (chainId !== marketsCache.networkId) {
+      throw new Error(`You are connected to ${networkName}, but the market is on ${CHAIN_NAMES[marketsCache.networkId]}. Please switch networks.`);
     }
     
     // Create contract instances
-    const usdcContract = new ethers.Contract(CONTRACT_ADDRESSES.USDC, ERC20_ABI, signer);
-    const overtimeAMMContract = new ethers.Contract(CONTRACT_ADDRESSES.OVERTIME_AMM, OVERTIME_AMM_ABI, signer);
+    const contractAddresses = CONTRACT_ADDRESSES[chainId];
+    const usdcContract = new ethers.Contract(contractAddresses.USDC, ERC20_ABI, signer);
+    const overtimeAMMContract = new ethers.Contract(contractAddresses.OVERTIME_AMM, OVERTIME_AMM_ABI, signer);
     
     // Convert amount to USDC units (USDC has 6 decimals)
     const amountInWei = ethers.parseUnits(amount, 6);
@@ -196,17 +274,16 @@ export async function placeBet(
     }
     
     // Check if the AMM has approval to spend USDC
-    const allowance = await usdcContract.allowance(userAddress, CONTRACT_ADDRESSES.OVERTIME_AMM);
+    const allowance = await usdcContract.allowance(userAddress, contractAddresses.OVERTIME_AMM);
     if (allowance < amountInWei) {
       console.log("Approving USDC spending...");
-      const approveTx = await usdcContract.approve(CONTRACT_ADDRESSES.OVERTIME_AMM, ethers.MaxUint256);
+      const approveTx = await usdcContract.approve(contractAddresses.OVERTIME_AMM, ethers.MaxUint256);
       const approveReceipt = await approveTx.wait();
       console.log("USDC approved for spending", approveReceipt);
     }
     
-    // Calculate expected payout - in a production environment, you would calculate this based on quotes
-    // For simplicity, we're using a conservative estimate
-    const expectedPayout = amountInWei; // Minimum expected payout (1:1)
+    // Use a simple minimum expected payout (could be improved with actual calculations)
+    const expectedPayout = amountInWei;
     
     // Execute the bet
     console.log(`Placing bet of ${amount} USDC on position ${teamIndex} for market ${marketAddress}`);
@@ -215,7 +292,7 @@ export async function placeBet(
       teamIndex,
       amountInWei,
       expectedPayout,
-      CONTRACT_ADDRESSES.USDC,
+      contractAddresses.USDC,
       ethers.ZeroAddress // No referrer
     );
     
@@ -234,4 +311,12 @@ export async function placeBet(
       message: `Error: ${error instanceof Error ? error.message : String(error)}`
     };
   }
+}
+
+/**
+ * Get the current network ID being used
+ * @returns The network ID (chain ID) being used for markets
+ */
+export function getCurrentNetworkId(): number {
+  return marketsCache.networkId;
 }
