@@ -1,3 +1,4 @@
+// components/BigGame.tsx - Updated for Overtime V2 API
 import React, { useEffect, useState } from 'react';
 import { getBigGame, Market } from '@/lib/overtimeApi';
 
@@ -93,7 +94,7 @@ const BigGame: React.FC = () => {
           {/* VS section */}
           <div className="flex flex-col items-center">
             <div className="text-yellow-500 font-bold text-xl mb-2">VS</div>
-            <div className="text-sm text-gray-400">{formatGameTime(game.startTime)}</div>
+            <div className="text-sm text-gray-400">{formatGameTime(game.maturityDate)}</div>
             <div className="mt-2 bg-gray-800 px-3 py-1 rounded-full text-xs">
               {game.sport.toUpperCase()}
             </div>
@@ -119,9 +120,9 @@ const BigGame: React.FC = () => {
         </div>
       </div>
       
-      {/* Liquidity indicator */}
+      {/* Market info */}
       <div className="bg-gray-800 p-2 text-center text-gray-400 text-sm">
-        Market Liquidity: ${Math.round(game.liquidity).toLocaleString()} USDC
+        Game ID: {game.gameId.slice(0, 8)}...
       </div>
     </div>
   );
