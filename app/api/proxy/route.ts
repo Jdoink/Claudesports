@@ -11,7 +11,7 @@ export async function GET(request: Request) {
       });
     }
 
-    console.log(`Proxying request to: ${url}`);
+    console.log(`Proxying GET request to: ${url}`);
     
     const response = await fetch(url, {
       headers: {
@@ -22,6 +22,7 @@ export async function GET(request: Request) {
     });
 
     if (!response.ok) {
+      console.error(`Target API returned status: ${response.status} - ${response.statusText}`);
       return new Response(JSON.stringify({ 
         error: `Target API returned status: ${response.status}`,
         message: response.statusText 
@@ -32,6 +33,7 @@ export async function GET(request: Request) {
     }
 
     const data = await response.json();
+    console.log(`Proxy GET success, data length: ${JSON.stringify(data).length} characters`);
     
     return new Response(JSON.stringify(data), {
       headers: { 
@@ -40,7 +42,7 @@ export async function GET(request: Request) {
       }
     });
   } catch (error) {
-    console.error('Proxy error:', error);
+    console.error('Proxy GET error:', error);
     return new Response(JSON.stringify({ 
       error: 'Failed to fetch from the target URL',
       message: error instanceof Error ? error.message : String(error)
@@ -67,7 +69,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     
     console.log(`Proxying POST request to: ${url}`);
-    console.log('Request body:', JSON.stringify(body));
+    console.log('Request body preview:', JSON.stringify(body).substring(0, 200) + '...');
     
     const response = await fetch(url, {
       method: 'POST',
@@ -79,16 +81,33 @@ export async function POST(request: Request) {
     });
 
     if (!response.ok) {
-      return new Response(JSON.stringify({ 
-        error: `Target API returned status: ${response.status}`,
-        message: response.statusText 
-      }), {
-        status: response.status,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      console.error(`Target API POST returned status: ${response.status} - ${response.statusText}`);
+      try {
+        // Try to get the error message from the response
+        const errorData = await response.text();
+        console.error('Error response:', errorData);
+        
+        return new Response(JSON.stringify({ 
+          error: `Target API returned status: ${response.status}`,
+          message: response.statusText,
+          details: errorData
+        }), {
+          status: response.status,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (parseError) {
+        return new Response(JSON.stringify({ 
+          error: `Target API returned status: ${response.status}`,
+          message: response.statusText
+        }), {
+          status: response.status,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
     }
 
     const data = await response.json();
+    console.log(`Proxy POST success, response preview:`, JSON.stringify(data).substring(0, 200) + '...');
     
     return new Response(JSON.stringify(data), {
       headers: { 
@@ -96,7 +115,7 @@ export async function POST(request: Request) {
       }
     });
   } catch (error) {
-    console.error('Proxy error:', error);
+    console.error('Proxy POST error:', error);
     return new Response(JSON.stringify({ 
       error: 'Failed to fetch from the target URL',
       message: error instanceof Error ? error.message : String(error)
