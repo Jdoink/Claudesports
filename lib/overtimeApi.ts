@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Updated with correct API endpoints from documentation
+// lib/overtimeApi.ts - Updated with correct API endpoints and domain
 // Types for Overtime/Thales markets based on official documentation
 export interface Market {
   address: string;
@@ -29,14 +29,18 @@ const NETWORK_IDS = {
 };
 
 // Chain names for display
-const CHAIN_NAMES = {
+const CHAIN_NAMES: Record<number, string> = {
   [NETWORK_IDS.OPTIMISM]: 'Optimism',
   [NETWORK_IDS.ARBITRUM]: 'Arbitrum',
   [NETWORK_IDS.BASE]: 'Base'
 };
 
-// Contract addresses from SportsAMMV2 documentation
-const CONTRACT_ADDRESSES = {
+// Contract addresses - make it indexed by number with Record type
+const CONTRACT_ADDRESSES: Record<number, {
+  USDC: string;
+  OVERTIME_AMM: string;
+  SPORT_MARKETS_MANAGER: string;
+}> = {
   // Optimism Mainnet
   [NETWORK_IDS.OPTIMISM]: {
     USDC: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
@@ -108,8 +112,10 @@ async function fetchApi(url: string): Promise<any> {
  */
 async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
   try {
-    // Correct API endpoint from the documentation 
-    const url = `https://api.overtimemarkets.xyz/v2/networks/${networkId}/markets?status=open`;
+    // UPDATED: Correct API endpoint with new domain and path structure
+    const url = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/markets`;
+    
+    console.log(`Attempting to fetch markets from network ${networkId} using URL: ${url}`);
     
     const data = await fetchApi(url);
     
@@ -132,7 +138,11 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
       });
     });
     
-    console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId]}`);
+    console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
+    if (markets.length > 0) {
+      console.log('Sample market data:', markets[0]);
+    }
+    
     return markets;
   } catch (error) {
     console.error(`Error getting markets for network ${networkId}:`, error);
@@ -149,10 +159,11 @@ async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networ
   const networks = [NETWORK_IDS.BASE, NETWORK_IDS.OPTIMISM, NETWORK_IDS.ARBITRUM];
   
   for (const networkId of networks) {
+    console.log(`Trying to fetch markets from network ${networkId} (${CHAIN_NAMES[networkId] || 'Unknown'})`);
     const markets = await getMarketsForNetwork(networkId);
     
     if (markets.length > 0) {
-      console.log(`Using ${markets.length} markets from ${CHAIN_NAMES[networkId]}`);
+      console.log(`Using ${markets.length} markets from ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
       return { markets, networkId };
     }
   }
@@ -174,7 +185,7 @@ export async function getActiveMarkets(): Promise<Market[]> {
       marketsCache.markets.length > 0 && 
       now - marketsCache.timestamp < CACHE_EXPIRATION
     ) {
-      console.log(`Using cached markets from ${CHAIN_NAMES[marketsCache.networkId]}`);
+      console.log(`Using cached markets from ${CHAIN_NAMES[marketsCache.networkId] || 'Unknown Chain'}`);
       return marketsCache.markets;
     }
     
@@ -332,14 +343,18 @@ export async function placeBet(
     const ethersProvider = new ethers.BrowserProvider(provider);
     const signer = await ethersProvider.getSigner();
     
-    // Check that user is on the correct network
-    const chainId = await signer.provider.getChainId();
+    // Check that user is on the correct network - using ethers v6 syntax
+    // In ethers v6, chainId is accessed directly as a property
+    const network = await ethersProvider.getNetwork();
+    const chainId = Number(network.chainId);
+    
     if (chainId !== networkId) {
-      throw new Error(`Please switch to ${CHAIN_NAMES[networkId]} network to place this bet`);
+      throw new Error(`Please switch to ${CHAIN_NAMES[networkId] || 'the correct'} network to place this bet`);
     }
     
     // Get contract addresses for the network
-    const contractAddresses = CONTRACT_ADDRESSES[networkId];
+    // Use a type check to ensure TypeScript knows this is valid
+    const contractAddresses = CONTRACT_ADDRESSES[networkId as keyof typeof CONTRACT_ADDRESSES];
     if (!contractAddresses) {
       throw new Error(`Unsupported network: ${networkId}`);
     }
