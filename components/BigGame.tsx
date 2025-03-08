@@ -1,4 +1,4 @@
-// components/BigGame.tsx - Updated for Overtime V2 API
+// components/BigGame.tsx - Updated for real games
 import React, { useEffect, useState } from 'react';
 import { getBigGame, Market } from '@/lib/overtimeApi';
 
@@ -30,7 +30,7 @@ const BigGame: React.FC = () => {
     return () => clearInterval(intervalId);
   }, []);
   
-  // Format the odds to be more readable (e.g., +150, -200)
+  // Format the odds to be more readable American format
   const formatOdds = (odds: number) => {
     if (odds >= 2) {
       return `+${Math.round((odds - 1) * 100)}`;
@@ -96,8 +96,13 @@ const BigGame: React.FC = () => {
             <div className="text-yellow-500 font-bold text-xl mb-2">VS</div>
             <div className="text-sm text-gray-400">{formatGameTime(game.maturityDate)}</div>
             <div className="mt-2 bg-gray-800 px-3 py-1 rounded-full text-xs">
-              {game.sport.toUpperCase()}
+              {game.category || game.sport.toUpperCase()}
             </div>
+            {game.isDemo && (
+              <div className="mt-2 bg-red-600 px-3 py-1 rounded-full text-xs">
+                DEMO - Actual Game
+              </div>
+            )}
             <div className="mt-2 bg-blue-600 px-3 py-1 rounded-full text-xs flex items-center">
               <svg width="16" height="16" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="mr-1">
                 <path d="M16 0C7.164 0 0 7.164 0 16s7.164 16 16 16 16-7.164 16-16S24.836 0 16 0z" fill="#0052FF"/>
@@ -120,9 +125,9 @@ const BigGame: React.FC = () => {
         </div>
       </div>
       
-      {/* Market info */}
+      {/* Game info */}
       <div className="bg-gray-800 p-2 text-center text-gray-400 text-sm">
-        Game ID: {game.gameId.slice(0, 8)}...
+        Real Game ID: {game.gameId.slice(0, 16)}...
       </div>
     </div>
   );
