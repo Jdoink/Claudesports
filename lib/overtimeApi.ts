@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Updated with correct API endpoints and fixed contract access
+// lib/overtimeApi.ts - Updated with correct API endpoints and domain
 // Types for Overtime/Thales markets based on official documentation
 export interface Market {
   address: string;
@@ -112,8 +112,10 @@ async function fetchApi(url: string): Promise<any> {
  */
 async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
   try {
-    // Correct API endpoint from the documentation 
-    const url = `https://api.overtimemarkets.xyz/v2/networks/${networkId}/markets?status=open`;
+    // UPDATED: Correct API endpoint with new domain and path structure
+    const url = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/markets`;
+    
+    console.log(`Attempting to fetch markets from network ${networkId} using URL: ${url}`);
     
     const data = await fetchApi(url);
     
@@ -137,6 +139,10 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
     });
     
     console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
+    if (markets.length > 0) {
+      console.log('Sample market data:', markets[0]);
+    }
+    
     return markets;
   } catch (error) {
     console.error(`Error getting markets for network ${networkId}:`, error);
@@ -153,6 +159,7 @@ async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networ
   const networks = [NETWORK_IDS.BASE, NETWORK_IDS.OPTIMISM, NETWORK_IDS.ARBITRUM];
   
   for (const networkId of networks) {
+    console.log(`Trying to fetch markets from network ${networkId} (${CHAIN_NAMES[networkId] || 'Unknown'})`);
     const markets = await getMarketsForNetwork(networkId);
     
     if (markets.length > 0) {
