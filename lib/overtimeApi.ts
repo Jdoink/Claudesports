@@ -320,7 +320,7 @@ export async function getBigGame(): Promise<Market | null> {
 }
 
 /**
- * Get a quote for placing a bet 
+ * Get a quote for placing a bet
  * @param market The market to bet on
  * @param position Which position to bet on (0=home, 1=away)
  * @param amount Amount to bet in USDC
@@ -334,55 +334,91 @@ export async function getQuote(
   networkId: number
 ): Promise<any> {
   try {
-    // Format the trade data according to the API
+    // Prepare the odds arrays - using only moneyline odds
+    const oddsArray = [market.homeOdds, market.awayOdds];
+    if (market.drawOdds) {
+      oddsArray.push(market.drawOdds);
+    }
+    
+    // Format the trade data exactly as shown in your working curl example
     const tradeData = {
       buyInAmount: amount,
       tradeData: [{
         gameId: market.gameId,
-        sportId: market.sportId,
-        typeId: market.typeId,
-        maturity: market.maturity,
-        status: market.status,
+        sportId: market.sportId || 0,
+        typeId: market.typeId || 0,
+        maturity: market.maturity || 0,
+        status: market.status || 0,
         line: market.line || 0,
-        playerId: market.playerId || "",
+        playerId: market.playerId || 0,
+        odds: oddsArray,
         position: position,
-        odds: market.odds ? market.odds.map(o => o.decimal) : [market.homeOdds, market.awayOdds, market.drawOdds || 0],
-        combinedPositions: ["", "", ""]
-      }]
+        combinedPositions: [[], [], []],
+        live: false
+      }],
+      collateral: "THALES" // Using default collateral as shown in example
     };
     
-    // Try both the direct endpoint and the proxy
-    const directUrl = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/quote`;
-    const proxyUrl = `/api/proxy?url=${encodeURIComponent(directUrl)}`;
+    console.log("Quote request data:", JSON.stringify(tradeData));
     
-    const urls = [directUrl, proxyUrl];
+    // Try the exact endpoint from your curl example
+    const quoteUrl = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/quote`;
+    console.log(`Sending quote request to: ${quoteUrl}`);
     
-    for (const url of urls) {
-      try {
-        console.log(`Trying to get quote from: ${url}`);
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(tradeData)
-        });
-        
-        if (response.ok) {
-          const quoteData = await response.json();
-          return quoteData;
-        }
-      } catch (err) {
-        console.error(`Error getting quote from ${url}:`, err);
+    try {
+      const response = await fetch(quoteUrl, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(tradeData)
+      });
+      
+      if (!response.ok) {
+        console.error(`Quote API returned status ${response.status}: ${response.statusText}`);
+        // Try the proxy as fallback
+        return await getQuoteViaProxy(tradeData, networkId);
       }
+      
+      const quoteData = await response.json();
+      console.log("Quote API response:", JSON.stringify(quoteData));
+      return quoteData;
+    } catch (err) {
+      console.error(`Error getting quote directly: ${err}`);
+      // Try proxy route as fallback
+      return await getQuoteViaProxy(tradeData, networkId);
     }
-    
-    throw new Error("Failed to get quote from any of the API endpoints");
   } catch (error) {
-    console.error('Error getting quote:', error);
-    throw error; // Re-throw to handle in the UI
+    console.error('Error preparing quote request:', error);
+    throw error;
   }
+}
+
+/**
+ * Helper function to get quote via the proxy route
+ */
+async function getQuoteViaProxy(tradeData: any, networkId: number): Promise<any> {
+  const proxyUrl = `/api/proxy?url=${encodeURIComponent(`https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/quote`)}`;
+  console.log(`Trying quote via proxy: ${proxyUrl}`);
+  
+  const response = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(tradeData)
+  });
+  
+  if (!response.ok) {
+    console.error(`Proxy quote API returned status ${response.status}: ${response.statusText}`);
+    throw new Error(`Failed to get quote via proxy: ${response.statusText}`);
+  }
+  
+  const quoteData = await response.json();
+  console.log("Quote API response via proxy:", JSON.stringify(quoteData));
+  return quoteData;
 }
 
 /**
@@ -472,7 +508,7 @@ export async function placeBet(
       line: market.line || 0,
       playerId: market.playerId || ethers.ZeroHash,
       position: position,
-      odds: market.odds ? market.odds.map(o => o.decimal) : [market.homeOdds, market.awayOdds, market.drawOdds || 0],
+      odds: [market.homeOdds, market.awayOdds, market.drawOdds || 0],
       combinedPositions: ["", "", ""]
     }];
     
