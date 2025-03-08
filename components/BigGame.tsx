@@ -1,6 +1,6 @@
-// components/BigGame.tsx - Fixed odds formatting
+// components/BigGame.tsx - Using correct API data format
 import React, { useEffect, useState } from 'react';
-import { getBigGame, Market, getCurrentNetworkId } from '@/lib/overtimeApi';
+import { getBigGame, Market, getCurrentNetworkId, formatAmericanOdds } from '@/lib/overtimeApi';
 
 // Chain names mapping
 const CHAIN_NAMES: Record<number, string> = {
@@ -39,24 +39,6 @@ const BigGame: React.FC = () => {
     
     return () => clearInterval(intervalId);
   }, []);
-  
-  // Format the odds to be more readable American format - FIXED to prevent NaN
-  const formatOdds = (odds: number) => {
-    if (!odds || isNaN(odds) || odds <= 1) {
-      return "N/A"; // Return a default value for invalid odds
-    }
-    
-    try {
-      if (odds >= 2) {
-        return `+${Math.round((odds - 1) * 100)}`;
-      } else {
-        return `-${Math.round(100 / (odds - 1))}`;
-      }
-    } catch (error) {
-      console.error("Error formatting odds:", error, "Original odds value:", odds);
-      return "N/A";
-    }
-  };
   
   // Format date from timestamp
   const formatGameTime = (timestamp: number) => {
@@ -122,7 +104,7 @@ const BigGame: React.FC = () => {
             <div className="bg-gray-800 p-4 rounded-lg h-full flex flex-col justify-between">
               <h3 className="text-xl font-bold mb-2">{game.homeTeam}</h3>
               <div className="bg-yellow-500 text-black font-bold text-xl py-2 px-4 rounded-md inline-block animate-pulse">
-                {formatOdds(game.homeOdds)}
+                {formatAmericanOdds(game.homeOdds)}
               </div>
             </div>
           </div>
@@ -144,7 +126,7 @@ const BigGame: React.FC = () => {
             <div className="bg-gray-800 p-4 rounded-lg h-full flex flex-col justify-between">
               <h3 className="text-xl font-bold mb-2">{game.awayTeam}</h3>
               <div className="bg-yellow-500 text-black font-bold text-xl py-2 px-4 rounded-md inline-block animate-pulse">
-                {formatOdds(game.awayOdds)}
+                {formatAmericanOdds(game.awayOdds)}
               </div>
             </div>
           </div>
