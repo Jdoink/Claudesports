@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Production version with real data
+// lib/overtimeApi.ts - Using only real Overtime Markets data
 // Types for Overtime/Thales markets
 export interface Market {
   address: string;
@@ -24,8 +24,10 @@ export interface Market {
   drawOddsWithBias?: number;
   liquidity?: number;
   networkId: number;
-  isDemo?: boolean;
 }
+
+// API endpoints for Overtime Markets
+const OVERTIME_API_V2 = 'https://api.overtimemarkets.xyz/v2';
 
 // Base Chain ID (8453)
 const BASE_CHAIN_ID = 8453;
@@ -38,192 +40,96 @@ const CONTRACT_ADDRESSES = {
   SPORT_MARKETS_MANAGER: '0x3Ed830e92eFfE68C0d1216B2b5115B1bceBB087C',
 };
 
-// In-memory cache with timestamp to know when to refresh
-let gamesCache: {
+// In-memory cache with timestamp
+let marketsCache: {
   timestamp: number;
-  games: Market[];
+  markets: Market[];
 } = {
   timestamp: 0,
-  games: []
+  markets: []
 };
 
-// Daily refresh trigger timestamp (6am Central Time)
-function getNextRefreshTime() {
-  const now = new Date();
-  let refreshDate = new Date(now);
-  refreshDate.setHours(6, 0, 0, 0); // 6am Central Time
-  
-  // Convert from Central Time to UTC for comparison
-  refreshDate.setHours(refreshDate.getHours() + 5); // +5 during standard time, +6 during daylight saving
-  
-  // If it's already past 6am, set for next day
-  if (now > refreshDate) {
-    refreshDate.setDate(refreshDate.getDate() + 1);
-  }
-  
-  return refreshDate.getTime();
-}
-
-// Function to fetch today's real NBA games with actual odds
-async function fetchSportsData(): Promise<Market[]> {
-  try {
-    // Note: In a production app, you would use a real sports API here
-    // For this demo, we're using a simplified approach with real game data
-    
-    // Today's date
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    
-    // NBA games for the current day (would normally come from a sports API)
-    const nbaGames = await getNBAGames();
-    
-    // Convert to our Market format
-    const markets: Market[] = nbaGames.map((game, index) => {
-      // Create a unique blockchain-style address for each game
-      const pseudoAddress = `0x${index.toString().padStart(2, '0')}${'0'.repeat(38)}`;
-      
-      return {
-        address: pseudoAddress,
-        gameId: `NBA-${today}-${game.homeTeam.split(' ').join('')}-${game.awayTeam.split(' ').join('')}`,
-        sport: "Basketball",
-        category: "NBA",
-        homeTeam: game.homeTeam,
-        awayTeam: game.awayTeam,
-        maturityDate: new Date(game.startTime).getTime() / 1000,
-        homeOdds: game.homeOdds,
-        awayOdds: game.awayOdds,
-        isPaused: false,
-        isCanceled: false,
-        isResolved: false,
-        networkId: BASE_CHAIN_ID
-      };
-    });
-    
-    return markets;
-  } catch (error) {
-    console.error("Error fetching sports data:", error);
-    return [];
-  }
-}
-
-// Function to generate realistic NBA games for today
-async function getNBAGames() {
-  // These are the actual NBA games scheduled for today
-  const today = new Date();
-  
-  // Format in MM/DD/YYYY for consistent display
-  const dateStr = `${(today.getMonth() + 1).toString().padStart(2, '0')}/${today.getDate().toString().padStart(2, '0')}/${today.getFullYear()}`;
-  
-  // Set game times for today
-  const earlyGame = new Date(today);
-  earlyGame.setHours(19, 0, 0, 0); // 7:00 PM local time
-  
-  const midGame = new Date(today);
-  midGame.setHours(19, 30, 0, 0); // 7:30 PM local time
-  
-  const lateGame = new Date(today);
-  lateGame.setHours(20, 0, 0, 0); // 8:00 PM local time
-  
-  // Real NBA teams and their actual matchups
-  const games = [
-    {
-      homeTeam: "Boston Celtics",
-      awayTeam: "Phoenix Suns",
-      startTime: earlyGame.toISOString(),
-      homeOdds: 1.55, // -182 in American odds
-      awayOdds: 2.45  // +145 in American odds
-    },
-    {
-      homeTeam: "Milwaukee Bucks", 
-      awayTeam: "Los Angeles Lakers",
-      startTime: midGame.toISOString(),
-      homeOdds: 1.75, // -133 in American odds
-      awayOdds: 2.10  // +110 in American odds
-    },
-    {
-      homeTeam: "Denver Nuggets",
-      awayTeam: "Miami Heat",
-      startTime: lateGame.toISOString(),
-      homeOdds: 1.65, // -154 in American odds
-      awayOdds: 2.25  // +125 in American odds
-    }
-  ];
-  
-  return games;
-}
+// Cache expiration in milliseconds (1 hour)
+const CACHE_EXPIRATION = 60 * 60 * 1000;
 
 /**
- * Fetches all active markets, respecting cache and refresh times
+ * Fetches all active markets from Overtime on Base chain
  * @returns Promise<Market[]> List of active markets
  */
 export async function getActiveMarkets(): Promise<Market[]> {
   try {
     const now = Date.now();
-    const refreshTime = getNextRefreshTime();
     
-    // Check if we need to refresh the cache (cache is empty or it's time to refresh)
-    if (gamesCache.games.length === 0 || now >= gamesCache.timestamp || now >= refreshTime) {
-      console.log("Refreshing games data");
-      
-      // Fetch fresh data
-      const markets = await fetchSportsData();
-      
-      // Update cache with fresh data
-      gamesCache = {
-        timestamp: now,
-        games: markets
-      };
-      
-      console.log(`Fetched ${markets.length} games`);
-    } else {
-      console.log("Using cached games data");
+    // Check if cache is valid (not expired and has data)
+    if (
+      marketsCache.markets.length > 0 && 
+      now - marketsCache.timestamp < CACHE_EXPIRATION
+    ) {
+      console.log("Using cached markets data");
+      return marketsCache.markets;
     }
     
-    // Return cached data
-    return gamesCache.games;
+    console.log("Fetching fresh markets data from Overtime API");
+    
+    // Use the V2 API endpoint with the Base chainId
+    const apiUrl = `${OVERTIME_API_V2}/markets?networkId=${BASE_CHAIN_ID}&isOpen=true`;
+    console.log(`Fetching from API: ${apiUrl}`);
+    
+    const response = await fetch(apiUrl, {
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store'
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    console.log('API response data:', data);
+    
+    if (!data.markets || !Array.isArray(data.markets)) {
+      throw new Error('Invalid API response format: missing markets array');
+    }
+    
+    // Update cache
+    marketsCache = {
+      timestamp: now,
+      markets: data.markets
+    };
+    
+    console.log(`Fetched ${data.markets.length} markets from Overtime API`);
+    return data.markets;
   } catch (error) {
-    console.error('Failed to fetch active markets:', error);
-    return [];
+    console.error('Failed to fetch markets from Overtime API:', error);
+    // Return whatever is in the cache, even if expired
+    return marketsCache.markets;
   }
 }
 
 /**
  * Gets the market with the highest liquidity (the "Big Game")
- * @returns Promise<Market | null> The featured game
+ * @returns Promise<Market | null> The market with highest liquidity or null
  */
 export async function getBigGame(): Promise<Market | null> {
   try {
     const markets = await getActiveMarkets();
     
     if (markets.length === 0) {
-      console.log('No markets available');
+      console.log('No markets available from Overtime API');
       return null;
     }
     
-    // Find the closest game to starting (or choose randomly)
-    const now = Math.floor(Date.now() / 1000);
-    
-    // Sort by how soon the game starts
-    markets.sort((a, b) => {
-      const timeToGameA = a.maturityDate - now;
-      const timeToGameB = b.maturityDate - now;
-      
-      // Prioritize games that haven't started yet
-      if (timeToGameA > 0 && timeToGameB <= 0) return -1;
-      if (timeToGameA <= 0 && timeToGameB > 0) return 1;
-      
-      // For games that haven't started, pick the closest one
-      if (timeToGameA > 0 && timeToGameB > 0) return timeToGameA - timeToGameB;
-      
-      // For games that have started, pick the most recent one
-      return timeToGameB - timeToGameA;
+    // Sort by liquidity (highest first)
+    const sortedMarkets = [...markets].sort((a, b) => {
+      const liquidityA = a.liquidity || 0;
+      const liquidityB = b.liquidity || 0;
+      return liquidityB - liquidityA;
     });
     
-    // Take the first game after sorting
-    const selectedGame = markets[0];
-    console.log('Selected game:', selectedGame);
+    const topMarket = sortedMarkets[0];
+    console.log('Top liquidity market:', topMarket);
     
-    return selectedGame;
+    return topMarket;
   } catch (error) {
     console.error('Failed to get the big game:', error);
     return null;
@@ -231,8 +137,11 @@ export async function getBigGame(): Promise<Market | null> {
 }
 
 /**
- * Place a bet on a market
- * This function interfaces with real contracts on Base chain
+ * Place a bet on a market using the Overtime Markets AMM contract
+ * @param marketAddress The address of the market contract
+ * @param amount The amount to bet in USDC (in decimal form, e.g. 10 for $10)
+ * @param teamIndex 0 for home team, 1 for away team
+ * @param provider The Ethereum provider from Coinbase Wallet
  */
 export async function placeBet(
   marketAddress: string,
@@ -295,7 +204,8 @@ export async function placeBet(
       console.log("USDC approved for spending", approveReceipt);
     }
     
-    // Calculate expected payout (simplified)
+    // Calculate expected payout - in a production environment, you would calculate this based on quotes
+    // For simplicity, we're using a conservative estimate
     const expectedPayout = amountInWei; // Minimum expected payout (1:1)
     
     // Execute the bet
