@@ -1,7 +1,7 @@
-// components/BettingForm.tsx - Fixed odds formatting
+// components/BettingForm.tsx - Using real API data for odds
 import React, { useState, useEffect } from 'react';
 import { isWalletConnected, getConnectedAccount } from '@/lib/web3';
-import { Market, placeBet } from '@/lib/overtimeApi';
+import { Market, placeBet, formatAmericanOdds } from '@/lib/overtimeApi';
 
 interface BettingFormProps {
   game: Market | null;
@@ -86,9 +86,15 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
       // Team index: 0 for home team, 1 for away team
       const teamIndex = selectedTeam === 'home' ? 0 : 1;
       
+      console.log('Placing bet:', {
+        market: game,
+        amount: betAmount,
+        position: teamIndex
+      });
+      
       // Call the placeBet function with the actual provider
       const result = await placeBet(
-        game, // Pass the entire game/market object instead of just the address
+        game, // Pass the entire game/market object
         betAmount,
         teamIndex,
         provider
@@ -126,32 +132,14 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     );
   }
 
-  // Format odds for display (American format) - FIXED to prevent NaN
-  const formatOdds = (odds: number) => {
-    if (!odds || isNaN(odds) || odds <= 1) {
-      return "N/A"; // Return a default value for invalid odds
-    }
-    
-    try {
-      if (odds >= 2) {
-        return `+${Math.round((odds - 1) * 100)}`;
-      } else {
-        return `-${Math.round(100 / (odds - 1))}`;
-      }
-    } catch (error) {
-      console.error("Error formatting odds:", error, "Original odds value:", odds);
-      return "N/A";
-    }
-  };
-
-  // Calculate potential winnings - FIXED to prevent NaN
+  // Calculate potential winnings using the decimal odds directly
   const calculateWinnings = () => {
     if (!selectedTeam || !betAmount || parseFloat(betAmount) <= 0) return 0;
     
     const odds = selectedTeam === 'home' ? game.homeOdds : game.awayOdds;
+    if (!odds || isNaN(odds) || odds <= 0) return 0;
     
-    if (!odds || isNaN(odds) || odds <= 1) return 0;
-    
+    // For decimal odds, the winnings are: bet amount × decimal odds
     return parseFloat(betAmount) * odds;
   };
 
@@ -177,7 +165,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             >
               <div className="font-bold mb-1">{game.homeTeam}</div>
               <div className="text-yellow-500 font-medium">
-                {formatOdds(game.homeOdds)}
+                {formatAmericanOdds(game.homeOdds)}
               </div>
             </button>
             
@@ -192,7 +180,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             >
               <div className="font-bold mb-1">{game.awayTeam}</div>
               <div className="text-yellow-500 font-medium">
-                {formatOdds(game.awayOdds)}
+                {formatAmericanOdds(game.awayOdds)}
               </div>
             </button>
           </div>
