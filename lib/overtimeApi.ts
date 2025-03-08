@@ -1,20 +1,33 @@
-// Types for Overtime/Thales markets
+// lib/overtimeApi.ts - Complete file with correct API implementation
+// Types for Overtime/Thales markets based on their documentation
 export interface Market {
-  id: string;
   address: string;
+  gameId: string;
   sport: string;
+  category?: string;
+  subcategory?: string;
   homeTeam: string;
   awayTeam: string;
+  maturityDate: number;
+  tags?: string[];
   homeOdds: number;
   awayOdds: number;
-  liquidity: number;
-  startTime: number;
-  resolved: boolean;
+  drawOdds?: number;
+  homeScore?: number;
+  awayScore?: number;
+  isPaused: boolean;
+  isCanceled: boolean;
+  isResolved: boolean;
+  finalResult?: number;
+  homeOddsWithBias?: number;
+  awayOddsWithBias?: number;
+  drawOddsWithBias?: number;
+  liquidity?: number;
   networkId: number;
 }
 
-// API endpoints for Overtime Markets
-const OVERTIME_API_BASE = 'https://api.thalesmarket.io';
+// API endpoints for Overtime Markets V2
+const OVERTIME_API_BASE = 'https://api.overtimemarkets.xyz/v2';
 
 // Base Chain ID (8453)
 const BASE_CHAIN_ID = 8453;
@@ -25,14 +38,19 @@ const BASE_CHAIN_ID = 8453;
  */
 export async function getActiveMarkets(): Promise<Market[]> {
   try {
-    // Specify Base chain in the query
-    const response = await fetch(`${OVERTIME_API_BASE}/overtime/markets/active?networkId=${BASE_CHAIN_ID}`);
+    // Using the correct endpoint from the documentation
+    console.log(`Fetching markets from ${OVERTIME_API_BASE}/markets?networkId=${BASE_CHAIN_ID}&isOpen=true`);
+    
+    const response = await fetch(
+      `${OVERTIME_API_BASE}/markets?networkId=${BASE_CHAIN_ID}&isOpen=true`
+    );
     
     if (!response.ok) {
       throw new Error(`Error fetching markets: ${response.statusText}`);
     }
     
     const data = await response.json();
+    console.log('Fetched markets data:', data);
     return data.markets || [];
   } catch (error) {
     console.error('Failed to fetch active markets:', error);
@@ -49,13 +67,17 @@ export async function getBigGame(): Promise<Market | null> {
     const markets = await getActiveMarkets();
     
     if (markets.length === 0) {
+      console.log('No markets available');
       return null;
     }
     
-    // Sort by liquidity (highest first)
-    const sortedMarkets = [...markets].sort((a, b) => b.liquidity - a.liquidity);
+    // Sort by maturity date (closest game first) as liquidity info might not be reliable
+    const sortedMarkets = [...markets].sort((a, b) => a.maturityDate - b.maturityDate);
     
-    // Return the market with the highest liquidity
+    // Log the top market for debugging
+    console.log('Top market:', sortedMarkets[0]);
+    
+    // Return the market with the closest start time
     return sortedMarkets[0] || null;
   } catch (error) {
     console.error('Failed to get the big game:', error);
@@ -125,22 +147,21 @@ export async function placeBet(
     }
     
     // Calculate expected payout based on the available amount
-    // In a production app, you'd get this from the AMM contract or API
-    // For simplicity, we're using a fixed expected payout multiple here
-    const expectedPayoutMultiple = teamIndex === 0 ? 1.8 : 2.2; // Example values
-    const expectedPayout = amountInWei * BigInt(Math.floor(expectedPayoutMultiple * 100)) / BigInt(100);
+    // For Overtime V2, we should use the quote function on the contract
+    // For now, using a simplified approach
+    const minReturnAmount = amountInWei;
     
-    // Add 2% slippage allowance
-    const slippage = BigInt(2); // 2%
+    // Execute the bet using buyFromAMMWithDifferentCollateralAndReferrer
+    console.log(`Placing bet of ${amount} USDC on position ${teamIndex} for market ${marketAddress}`);
     
-    // Execute the bet
-    console.log(`Placing bet of ${amount} USDC on team ${teamIndex} for market ${marketAddress}`);
-    const betTx = await overtimeAMMContract.buyFromAMM(
+    // Based on the Overtime V2 docs, use the appropriate method
+    const betTx = await overtimeAMMContract.buyFromAMMWithDifferentCollateralAndReferrer(
       marketAddress,
       teamIndex,
       amountInWei,
-      expectedPayout,
-      slippage
+      minReturnAmount,
+      contractAddresses.USDC,
+      ethers.ZeroAddress // No referrer
     );
     
     // Wait for transaction confirmation
