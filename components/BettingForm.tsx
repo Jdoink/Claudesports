@@ -1,4 +1,4 @@
-// components/BettingForm.tsx - Uses only real Overtime Markets data
+// components/BettingForm.tsx - Fixed odds display
 import React, { useState, useEffect } from 'react';
 import { isWalletConnected, getConnectedAccount } from '@/lib/web3';
 import { Market, placeBet } from '@/lib/overtimeApi';
@@ -136,8 +136,33 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     );
   }
 
-  // Format odds for display (American format)
-  const formatOdds = (odds: number) => {
+  // Get odds directly from the odds array
+  const getOdds = (position: 'home' | 'away'): string => {
+    if (!game) return 'N/A';
+    
+    // Check if we have the odds array
+    if (game.odds && game.odds.length >= 2) {
+      // Home is index 0, Away is index 1
+      const index = position === 'home' ? 0 : 1;
+      const americanOdds = game.odds[index].american;
+      
+      // Return the formatted American odds
+      return americanOdds.toString();
+    }
+    
+    // Fallback to the older format
+    const odds = position === 'home' ? game.homeOdds : game.awayOdds;
+    return formatOdds(odds);
+  };
+  
+  // Format the odds to be more readable American format
+  const formatOdds = (odds: number | undefined): string => {
+    // If odds are not available or invalid, return placeholder
+    if (odds === undefined || isNaN(odds)) {
+      return 'N/A';
+    }
+    
+    // Format regular decimal odds to American format
     if (odds >= 2) {
       return `+${Math.round((odds - 1) * 100)}`;
     } else {
@@ -147,9 +172,20 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
 
   // Calculate potential winnings
   const calculateWinnings = () => {
-    if (!selectedTeam || !betAmount || parseFloat(betAmount) <= 0) return 0;
+    if (!selectedTeam || !betAmount || parseFloat(betAmount) <= 0 || !game.odds) return 0;
+    
+    const betAmountNum = parseFloat(betAmount);
+    
+    // Use decimal odds for calculation
+    if (game.odds && game.odds.length >= 2) {
+      const index = selectedTeam === 'home' ? 0 : 1;
+      const decimalOdds = game.odds[index].decimal;
+      return betAmountNum * decimalOdds - betAmountNum; // Net winnings (minus stake)
+    }
+    
+    // Fallback to direct homeOdds/awayOdds
     const odds = selectedTeam === 'home' ? game.homeOdds : game.awayOdds;
-    return parseFloat(betAmount) * odds;
+    return betAmountNum * (odds || 1) - betAmountNum;
   };
 
   return (
@@ -174,7 +210,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             >
               <div className="font-bold mb-1">{game.homeTeam}</div>
               <div className="text-yellow-500 font-medium">
-                {formatOdds(game.homeOdds)}
+                {getOdds('home')}
               </div>
             </button>
             
@@ -189,7 +225,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             >
               <div className="font-bold mb-1">{game.awayTeam}</div>
               <div className="text-yellow-500 font-medium">
-                {formatOdds(game.awayOdds)}
+                {getOdds('away')}
               </div>
             </button>
           </div>
