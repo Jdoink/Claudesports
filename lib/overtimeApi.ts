@@ -1,5 +1,12 @@
-// lib/overtimeApi.ts - With NBA game filtering and debug logs
-// Types for Overtime/Thales markets based on official documentation
+// lib/overtimeApi.ts - Updated with correct Market interface
+// Odds data structure from the API
+export interface OddsData {
+  american: number;
+  decimal: number;
+  normalizedImplied: number;
+}
+
+// Types for Overtime/Thales markets based on actual API response structure
 export interface Market {
   address: string;
   gameId: string;
@@ -8,17 +15,29 @@ export interface Market {
   typeId: number;
   maturity: number;
   status: number;
+  statusCode?: string;
   line?: number;
-  playerId?: string;
+  playerId?: string | number;
   position?: number;
   homeTeam: string;
   awayTeam: string;
-  homeOdds: number;
-  awayOdds: number;
-  drawOdds?: number;
   leagueId?: number;
   leagueName?: string;
   networkId: number;
+  isOpen?: boolean;
+  isResolved?: boolean;
+  isCancelled?: boolean;
+  isOneSideMarket?: boolean;
+  isPlayerPropsMarket?: boolean;
+  isYesNoPlayerPropsMarket?: boolean;
+  isOneSidePlayerPropsMarket?: boolean;
+  isPaused?: boolean;
+  odds: OddsData[]; // This is the actual structure from the API
+  originalMarketName?: string;
+  playerProps?: any;
+  proof?: string[];
+  childMarkets?: Market[];
+  combinedPositions?: any[];
 }
 
 // Network IDs as seen in the documentation
@@ -83,38 +102,13 @@ const CACHE_EXPIRATION = 5 * 60 * 1000;
  * @param americanOdds American odds as a number
  * @returns Formatted string with +/- prefix
  */
-export function formatAmericanOdds(americanOdds: number): string {
-  // Add detailed logging of input
-  console.log(`Formatting odds value: ${americanOdds}, type: ${typeof americanOdds}`);
-  
-  if (americanOdds === undefined || americanOdds === null || isNaN(americanOdds)) {
-    console.log("Invalid odds: undefined, null, or NaN");
+export function formatAmericanOdds(odds: OddsData | null | undefined): string {
+  if (!odds || !odds.american || isNaN(odds.american)) {
     return 'N/A';
   }
   
-  // Basic calculation for American odds
-  // For decimal odds > 2.0, American odds = (decimal - 1) * 100
-  // For decimal odds < 2.0, American odds = -100 / (decimal - 1)
-  let formattedOdds: string;
-  
-  try {
-    if (americanOdds >= 2.0) {
-      const odds = Math.round((americanOdds - 1) * 100);
-      formattedOdds = `+${odds}`;
-    } else if (americanOdds > 1.0) {
-      const odds = Math.round(-100 / (americanOdds - 1));
-      formattedOdds = `${odds}`;
-    } else {
-      console.log("Odds too low (<=1.0)");
-      formattedOdds = 'N/A';
-    }
-    
-    console.log(`Formatted odds: ${formattedOdds}`);
-    return formattedOdds;
-  } catch (error) {
-    console.error("Error formatting odds:", error);
-    return 'N/A';
-  }
+  const americanOdds = odds.american;
+  return americanOdds > 0 ? `+${Math.round(americanOdds)}` : `${Math.round(americanOdds)}`;
 }
 
 /**
@@ -140,9 +134,7 @@ async function fetchApi(url: string): Promise<any> {
       return null;
     }
     
-    const data = await response.json();
-    console.log(`API response success from ${url}`);
-    return data;
+    return await response.json();
   } catch (error) {
     console.error(`Error fetching from ${url}:`, error);
     return null;
@@ -168,39 +160,22 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
       return [];
     }
     
-    // Debug log the full API response structure to see what's available
-    console.log(`API response structure:`, Object.keys(data));
-    
-    // Log all sports available to see if NBA is included
-    console.log(`Available sports:`, Object.keys(data));
-    
-    // Look for NBA data specifically - might be labeled differently
+    // Filter for NBA markets only
     let nbaMarkets: Market[] = [];
     
     Object.keys(data).forEach(sport => {
-      console.log(`Sport: ${sport}, Leagues:`, Object.keys(data[sport]));
-      
-      // Check all leagues in each sport to find NBA-related data
       Object.keys(data[sport]).forEach(leagueId => {
         const leagueMarkets = data[sport][leagueId];
         if (Array.isArray(leagueMarkets) && leagueMarkets.length > 0) {
           const sampleMarket = leagueMarkets[0];
-          console.log(`Sample market from ${sport} league ${leagueId}:`, {
-            sportId: sampleMarket.sportId,
-            sport: sampleMarket.sport,
-            homeTeam: sampleMarket.homeTeam,
-            awayTeam: sampleMarket.awayTeam,
-            homeOdds: sampleMarket.homeOdds,
-            awayOdds: sampleMarket.awayOdds,
-            maturity: new Date(sampleMarket.maturity * 1000).toLocaleString()
-          });
           
           // Filter for NBA or Basketball games
           if (
-            sampleMarket.sportId === NBA_SPORT_ID || 
-            sampleMarket.sport?.toLowerCase().includes('basketball') ||
-            sport.toLowerCase().includes('basketball') ||
-            sport.toLowerCase().includes('nba')
+            sport.toLowerCase().includes('basket') ||
+            sport.toLowerCase().includes('nba') ||
+            sampleMarket.sport?.toLowerCase().includes('basket') ||
+            sampleMarket.leagueName?.toLowerCase().includes('nba') ||
+            sampleMarket.sportId === NBA_SPORT_ID
           ) {
             console.log(`Found NBA/Basketball markets in ${sport} league ${leagueId}`);
             nbaMarkets = nbaMarkets.concat(leagueMarkets);
@@ -212,23 +187,8 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
     console.log(`Found ${nbaMarkets.length} NBA/Basketball markets on ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
     
     if (nbaMarkets.length > 0) {
-      // Log detailed data for sample markets to debug odds issues
-      nbaMarkets.slice(0, 3).forEach((market, index) => {
-        console.log(`NBA Market ${index} details:`, {
-          gameId: market.gameId,
-          homeTeam: market.homeTeam,
-          awayTeam: market.awayTeam,
-          homeOdds: market.homeOdds,
-          homeOddsType: typeof market.homeOdds,
-          awayOdds: market.awayOdds,
-          awayOddsType: typeof market.awayOdds,
-          sportId: market.sportId,
-          sport: market.sport,
-          maturity: new Date(market.maturity * 1000).toLocaleString(),
-          // Log any other fields that might contain odds information
-          fullMarket: market
-        });
-      });
+      // Log detailed data for sample market
+      console.log("Sample NBA market:", nbaMarkets[0]);
     }
     
     return nbaMarkets;
@@ -312,7 +272,6 @@ export async function getBigGame(): Promise<Market | null> {
     }
     
     // Find market with highest liquidity/interest
-    // Note: sorting logic may need to be adjusted based on actual data structure
     const sortedMarkets = [...markets].sort((a, b) => {
       // Sort by status (prioritize active games)
       const statusDiff = (a.status || 0) - (b.status || 0);
@@ -332,13 +291,9 @@ export async function getBigGame(): Promise<Market | null> {
     const topMarket = sortedMarkets[0];
     console.log('Selected top NBA market:', topMarket);
     
-    // Debug the exact odds values
-    if (topMarket) {
-      console.log('Selected market odds values:');
-      console.log('Home odds:', topMarket.homeOdds, 'type:', typeof topMarket.homeOdds);
-      console.log('Away odds:', topMarket.awayOdds, 'type:', typeof topMarket.awayOdds);
-      console.log('Formatted home odds:', formatAmericanOdds(topMarket.homeOdds));
-      console.log('Formatted away odds:', formatAmericanOdds(topMarket.awayOdds));
+    // Verify the odds are there
+    if (topMarket && topMarket.odds) {
+      console.log('Market odds:', topMarket.odds);
     }
     
     return topMarket;
@@ -375,7 +330,8 @@ export async function getQuote(
         line: market.line || 0,
         playerId: market.playerId || 0,
         position: position,
-        odds: [market.homeOdds, market.awayOdds, market.drawOdds || 0],
+        // Get the actual odds array from the market, or build it if needed
+        odds: market.odds?.map(o => o.decimal) || [market.odds?.[0]?.decimal || 0, market.odds?.[1]?.decimal || 0, 0],
         combinedPositions: [[], [], []],
         live: false
       }],
