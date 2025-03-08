@@ -1,4 +1,4 @@
-// components/BettingForm.tsx - Updated to remove isDemo references
+// components/BettingForm.tsx - Fixed type error
 import React, { useState, useEffect } from 'react';
 import { isWalletConnected, getConnectedAccount } from '@/lib/web3';
 import { Market, placeBet } from '@/lib/overtimeApi';
@@ -88,7 +88,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
       
       // Call the placeBet function with the actual provider
       const result = await placeBet(
-        game.address,
+        game, // Pass the entire game/market object instead of just the address
         betAmount,
         teamIndex,
         provider
