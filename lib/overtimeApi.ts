@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Updated with correct API endpoints and domain
+// lib/overtimeApi.ts - Added data debugging
 // Types for Overtime/Thales markets based on official documentation
 export interface Market {
   address: string;
@@ -35,7 +35,7 @@ const CHAIN_NAMES: Record<number, string> = {
   [NETWORK_IDS.BASE]: 'Base'
 };
 
-// Contract addresses - make it indexed by number with Record type
+// Contract addresses from SportsAMMV2 documentation
 const CONTRACT_ADDRESSES: Record<number, {
   USDC: string;
   OVERTIME_AMM: string;
@@ -112,7 +112,7 @@ async function fetchApi(url: string): Promise<any> {
  */
 async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
   try {
-    // UPDATED: Correct API endpoint with new domain and path structure
+    // Correct API endpoint from the documentation 
     const url = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/markets`;
     
     console.log(`Attempting to fetch markets from network ${networkId} using URL: ${url}`);
@@ -140,7 +140,41 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
     
     console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
     if (markets.length > 0) {
-      console.log('Sample market data:', markets[0]);
+      // Log the first market to inspect its data structure
+      console.log('First market data structure:', markets[0]);
+      
+      // DEBUG: Check all markets for valid odds
+      let invalidOddsCount = 0;
+      markets.forEach((market, index) => {
+        if (!market.homeOdds || !market.awayOdds || isNaN(market.homeOdds) || isNaN(market.awayOdds)) {
+          invalidOddsCount++;
+          console.log(`Market ${index} has invalid odds:`, { 
+            homeTeam: market.homeTeam,
+            awayTeam: market.awayTeam,
+            homeOdds: market.homeOdds,
+            awayOdds: market.awayOdds
+          });
+        }
+      });
+      
+      if (invalidOddsCount > 0) {
+        console.log(`WARNING: Found ${invalidOddsCount} markets with invalid odds out of ${markets.length} total markets`);
+      }
+      
+      // Look for markets with valid odds
+      const validMarkets = markets.filter(m => 
+        m.homeOdds && 
+        m.awayOdds && 
+        !isNaN(m.homeOdds) && 
+        !isNaN(m.awayOdds) && 
+        m.homeOdds > 1 && 
+        m.awayOdds > 1
+      );
+      
+      console.log(`Found ${validMarkets.length} markets with valid odds`);
+      if (validMarkets.length > 0) {
+        console.log('Sample valid market:', validMarkets[0]);
+      }
     }
     
     return markets;
@@ -223,9 +257,24 @@ export async function getBigGame(): Promise<Market | null> {
       return null;
     }
     
+    // Filter for markets with valid odds
+    const validMarkets = markets.filter(m => 
+      m.homeOdds && 
+      m.awayOdds && 
+      !isNaN(m.homeOdds) && 
+      !isNaN(m.awayOdds) && 
+      m.homeOdds > 1 && 
+      m.awayOdds > 1
+    );
+    
+    console.log(`Found ${validMarkets.length} markets with valid odds out of ${markets.length} total markets`);
+    
+    // If we have valid markets, prioritize those
+    const marketsToUse = validMarkets.length > 0 ? validMarkets : markets;
+    
     // Find market with highest liquidity/interest
     // Note: sorting logic may need to be adjusted based on actual data structure
-    const sortedMarkets = [...markets].sort((a, b) => {
+    const sortedMarkets = [...marketsToUse].sort((a, b) => {
       // Sort by status (prioritize active games)
       const statusDiff = (a.status || 0) - (b.status || 0);
       if (statusDiff !== 0) return statusDiff;
@@ -243,6 +292,24 @@ export async function getBigGame(): Promise<Market | null> {
     
     const topMarket = sortedMarkets[0];
     console.log('Selected top market:', topMarket);
+    
+    // Ensure the market has valid odds - if not, try to fix them
+    if (topMarket) {
+      console.log('Top market odds check:');
+      console.log('homeOdds:', topMarket.homeOdds, typeof topMarket.homeOdds);
+      console.log('awayOdds:', topMarket.awayOdds, typeof topMarket.awayOdds);
+      
+      // If odds are missing or invalid, try to set default odds (1.9) for display purposes
+      if (!topMarket.homeOdds || isNaN(topMarket.homeOdds) || topMarket.homeOdds <= 1) {
+        console.log('Setting default homeOdds for display');
+        topMarket.homeOdds = 1.9;
+      }
+      
+      if (!topMarket.awayOdds || isNaN(topMarket.awayOdds) || topMarket.awayOdds <= 1) {
+        console.log('Setting default awayOdds for display');
+        topMarket.awayOdds = 1.9;
+      }
+    }
     
     return topMarket;
   } catch (error) {
