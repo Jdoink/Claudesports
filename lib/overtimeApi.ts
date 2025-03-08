@@ -332,8 +332,11 @@ export async function placeBet(
     const ethersProvider = new ethers.BrowserProvider(provider);
     const signer = await ethersProvider.getSigner();
     
-    // Check that user is on the correct network
-    const chainId = await signer.provider.getChainId();
+    // Check that user is on the correct network - using ethers v6 syntax
+    // In ethers v6, chainId is accessed directly as a property
+    const network = await ethersProvider.getNetwork();
+    const chainId = Number(network.chainId);
+    
     if (chainId !== networkId) {
       throw new Error(`Please switch to ${CHAIN_NAMES[networkId]} network to place this bet`);
     }
