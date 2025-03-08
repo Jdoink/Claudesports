@@ -1,4 +1,4 @@
-// components/BettingForm.tsx - Fixed odds display
+// components/BettingForm.tsx - Fixed type error
 import React, { useState, useEffect } from 'react';
 import { isWalletConnected, getConnectedAccount } from '@/lib/web3';
 import { Market, placeBet } from '@/lib/overtimeApi';
@@ -18,16 +18,12 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
   // Check wallet connection status
   useEffect(() => {
     const checkWalletConnection = async () => {
-      try {
-        const connected = await isWalletConnected();
-        setIsConnected(connected);
-        
-        if (connected) {
-          const account = await getConnectedAccount();
-          setWalletAddress(account);
-        }
-      } catch (err) {
-        console.error('Error checking wallet connection:', err);
+      const connected = await isWalletConnected();
+      setIsConnected(connected);
+      
+      if (connected) {
+        const account = await getConnectedAccount();
+        setWalletAddress(account);
       }
     };
     
@@ -92,7 +88,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
       
       // Call the placeBet function with the actual provider
       const result = await placeBet(
-        game, // Pass the entire game/market object
+        game, // Pass the entire game/market object instead of just the address
         betAmount,
         teamIndex,
         provider
@@ -116,14 +112,8 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     }
   };
 
-  // If there's no game data, show a message
   if (!game) {
-    return (
-      <div className="bg-gray-800 rounded-lg p-6 text-center text-white mb-8">
-        <p className="text-xl">No active game available for betting</p>
-        <p className="text-gray-400 mt-2">Check back soon for upcoming games!</p>
-      </div>
-    );
+    return null;
   }
 
   // If wallet is not connected, show connect wallet message
@@ -136,33 +126,8 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     );
   }
 
-  // Get odds directly from the odds array
-  const getOdds = (position: 'home' | 'away'): string => {
-    if (!game) return 'N/A';
-    
-    // Check if we have the odds array
-    if (game.odds && game.odds.length >= 2) {
-      // Home is index 0, Away is index 1
-      const index = position === 'home' ? 0 : 1;
-      const americanOdds = game.odds[index].american;
-      
-      // Return the formatted American odds
-      return americanOdds.toString();
-    }
-    
-    // Fallback to the older format
-    const odds = position === 'home' ? game.homeOdds : game.awayOdds;
-    return formatOdds(odds);
-  };
-  
-  // Format the odds to be more readable American format
-  const formatOdds = (odds: number | undefined): string => {
-    // If odds are not available or invalid, return placeholder
-    if (odds === undefined || isNaN(odds)) {
-      return 'N/A';
-    }
-    
-    // Format regular decimal odds to American format
+  // Format odds for display (American format)
+  const formatOdds = (odds: number) => {
     if (odds >= 2) {
       return `+${Math.round((odds - 1) * 100)}`;
     } else {
@@ -172,20 +137,9 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
 
   // Calculate potential winnings
   const calculateWinnings = () => {
-    if (!selectedTeam || !betAmount || parseFloat(betAmount) <= 0 || !game.odds) return 0;
-    
-    const betAmountNum = parseFloat(betAmount);
-    
-    // Use decimal odds for calculation
-    if (game.odds && game.odds.length >= 2) {
-      const index = selectedTeam === 'home' ? 0 : 1;
-      const decimalOdds = game.odds[index].decimal;
-      return betAmountNum * decimalOdds - betAmountNum; // Net winnings (minus stake)
-    }
-    
-    // Fallback to direct homeOdds/awayOdds
+    if (!selectedTeam || !betAmount || parseFloat(betAmount) <= 0) return 0;
     const odds = selectedTeam === 'home' ? game.homeOdds : game.awayOdds;
-    return betAmountNum * (odds || 1) - betAmountNum;
+    return parseFloat(betAmount) * odds;
   };
 
   return (
@@ -210,7 +164,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             >
               <div className="font-bold mb-1">{game.homeTeam}</div>
               <div className="text-yellow-500 font-medium">
-                {getOdds('home')}
+                {formatOdds(game.homeOdds)}
               </div>
             </button>
             
@@ -225,7 +179,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             >
               <div className="font-bold mb-1">{game.awayTeam}</div>
               <div className="text-yellow-500 font-medium">
-                {getOdds('away')}
+                {formatOdds(game.awayOdds)}
               </div>
             </button>
           </div>
