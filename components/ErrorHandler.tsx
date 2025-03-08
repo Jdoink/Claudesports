@@ -10,7 +10,7 @@ const ErrorHandler: React.FC<ErrorHandlerProps> = ({ errorMessage, retryAction }
   if (!errorMessage) return null;
 
   return (
-    <div className="bg-red-900 text-white p-4 rounded-lg mb-4 shadow-lg animate-pulse">
+    <div className="bg-red-900 text-white p-4 rounded-lg mb-4 shadow-lg">
       <div className="flex items-start">
         <div className="text-red-500 mr-3">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
