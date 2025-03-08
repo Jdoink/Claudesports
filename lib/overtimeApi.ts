@@ -14,17 +14,21 @@ export interface Market {
   position?: number;
   homeTeam: string;
   awayTeam: string;
-  homeOdds: number;
-  awayOdds: number;
+  homeOdds?: number;
+  awayOdds?: number;
   drawOdds?: number;
   leagueId?: number;
   leagueName?: string;
   networkId: number;
-  odds?: Array<{
+  odds: Array<{
     american: number;
     decimal: number;
     normalizedImplied: number;
   }>;
+  originalMarketName?: string;
+  type?: string;
+  childMarkets?: any[];
+  combinedPositions?: any[];
 }
 
 // Network IDs as seen in the documentation
@@ -158,25 +162,27 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
       console.log(`Found ${allMarkets.length} markets in nested format`);
     }
     
-    // Filter for NBA games only
-    const nbaMarkets = allMarkets.filter(market => {
-      // Check if it's a basketball game and an NBA league
+    // Filter for NCAA basketball games since that's what your app is showing
+    const basketballMarkets = allMarkets.filter(market => {
+      // Check if it's a basketball game with NBA or NCAA leagues
       const isBasketball = market.sport?.toLowerCase() === 'basketball';
-      const isNBA = 
+      const isBasketballLeague = 
         market.leagueId === NBA_LEAGUE_ID || 
+        market.leagueName?.toLowerCase().includes('basketball') ||
+        market.leagueName?.toLowerCase().includes('ncaa') ||
         market.leagueName?.toLowerCase().includes('nba');
       
-      return isBasketball && isNBA;
+      return isBasketball && isBasketballLeague;
     });
     
-    console.log(`Filtered down to ${nbaMarkets.length} NBA markets`);
+    console.log(`Filtered down to ${basketballMarkets.length} basketball markets`);
     
     // Add debug output for the first market if available
-    if (nbaMarkets.length > 0) {
-      console.log('Sample of first NBA market:', JSON.stringify(nbaMarkets[0]).substring(0, 200) + '...');
+    if (basketballMarkets.length > 0) {
+      console.log('Sample of first basketball market:', JSON.stringify(basketballMarkets[0]).substring(0, 200) + '...');
     }
     
-    return nbaMarkets;
+    return basketballMarkets;
   } catch (error) {
     console.error(`Error getting markets for network ${networkId}:`, error);
     return [];
@@ -186,7 +192,7 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
 /**
  * Try the proxy route if direct API call fails
  * @param networkId Network ID to fetch markets for
- * @returns Array of NBA markets
+ * @returns Array of basketball markets
  */
 async function tryProxyRoute(networkId: number): Promise<Market[]> {
   const url = `/api/proxy?url=${encodeURIComponent(`https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/markets`)}`;
@@ -220,18 +226,20 @@ async function tryProxyRoute(networkId: number): Promise<Market[]> {
       });
     }
     
-    // Filter for NBA games only
-    const nbaMarkets = allMarkets.filter(market => {
+    // Filter for basketball games
+    const basketballMarkets = allMarkets.filter(market => {
       const isBasketball = market.sport?.toLowerCase() === 'basketball';
-      const isNBA = 
+      const isBasketballLeague = 
         market.leagueId === NBA_LEAGUE_ID || 
+        market.leagueName?.toLowerCase().includes('basketball') ||
+        market.leagueName?.toLowerCase().includes('ncaa') ||
         market.leagueName?.toLowerCase().includes('nba');
       
-      return isBasketball && isNBA;
+      return isBasketball && isBasketballLeague;
     });
     
-    console.log(`Filtered down to ${nbaMarkets.length} NBA markets via proxy`);
-    return nbaMarkets;
+    console.log(`Filtered down to ${basketballMarkets.length} basketball markets via proxy`);
+    return basketballMarkets;
   } catch (error) {
     console.error(`Error using proxy route for network ${networkId}:`, error);
     return [];
@@ -239,7 +247,7 @@ async function tryProxyRoute(networkId: number): Promise<Market[]> {
 }
 
 /**
- * Find NBA markets from all supported networks, prioritizing Base
+ * Find basketball markets from all supported networks, prioritizing Base
  * @returns Object with markets array and the network ID they came from
  */
 async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networkId: number }> {
@@ -256,18 +264,18 @@ async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networ
     }
     
     if (markets.length > 0) {
-      console.log(`Using ${markets.length} NBA markets from ${CHAIN_NAMES[networkId]}`);
+      console.log(`Using ${markets.length} basketball markets from ${CHAIN_NAMES[networkId]}`);
       return { markets, networkId };
     }
   }
   
-  console.error("No NBA markets found on any network");
+  console.error("No basketball markets found on any network");
   return { markets: [], networkId: NETWORK_IDS.OPTIMISM };
 }
 
 /**
- * Get the highest liquidity active NBA markets
- * @returns Promise with array of NBA markets
+ * Get the highest liquidity active basketball markets
+ * @returns Promise with array of basketball markets
  */
 export async function getActiveMarkets(): Promise<Market[]> {
   try {
@@ -306,7 +314,7 @@ export async function getActiveMarkets(): Promise<Market[]> {
 }
 
 /**
- * Get the "Big Game" - the NBA market with highest liquidity
+ * Get the "Big Game" - the basketball market with highest liquidity
  * @returns Promise with the market or null if none found
  */
 export async function getBigGame(): Promise<Market | null> {
@@ -314,7 +322,7 @@ export async function getBigGame(): Promise<Market | null> {
     const markets = await getActiveMarkets();
     
     if (markets.length === 0) {
-      console.log('No NBA markets available');
+      console.log('No basketball markets available');
       return null;
     }
     
@@ -337,7 +345,7 @@ export async function getBigGame(): Promise<Market | null> {
     });
     
     const topMarket = sortedMarkets[0];
-    console.log('Selected top NBA market:', topMarket);
+    console.log('Selected top basketball market:', topMarket);
     
     return topMarket;
   } catch (error) {
@@ -361,10 +369,22 @@ export async function getQuote(
   networkId: number
 ): Promise<any> {
   try {
-    // Prepare the odds arrays - using only moneyline odds
-    const oddsArray = [market.homeOdds, market.awayOdds];
-    if (market.drawOdds) {
-      oddsArray.push(market.drawOdds);
+    // Prepare the odds arrays - if odds array is available, use it
+    let oddsArray: number[] = [];
+    
+    if (market.odds && market.odds.length > 0) {
+      // Extract decimal odds from odds array
+      oddsArray = market.odds.map(odd => odd.decimal);
+    } else {
+      // Fallback to homeOdds/awayOdds
+      oddsArray = [
+        market.homeOdds || 0,
+        market.awayOdds || 0
+      ];
+      
+      if (market.drawOdds) {
+        oddsArray.push(market.drawOdds);
+      }
     }
     
     // Format the trade data for a simple moneyline bet with USDC
@@ -525,10 +545,22 @@ export async function placeBet(
     const approveTx = await usdcContract.approve(contractAddresses.OVERTIME_AMM, amountInWei);
     await approveTx.wait();
     
-    // Prepare odds array
-    const oddsArray = [market.homeOdds, market.awayOdds];
-    if (market.drawOdds) {
-      oddsArray.push(market.drawOdds);
+    // Prepare odds array from the market data
+    let oddsArray: number[] = [];
+    
+    if (market.odds && market.odds.length > 0) {
+      // Extract decimal odds from odds array
+      oddsArray = market.odds.map(odd => odd.decimal);
+    } else {
+      // Fallback to homeOdds/awayOdds
+      oddsArray = [
+        market.homeOdds || 0,
+        market.awayOdds || 0
+      ];
+      
+      if (market.drawOdds) {
+        oddsArray.push(market.drawOdds);
+      }
     }
     
     // Format trade data according to contract requirements
