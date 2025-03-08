@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Using only real data from Overtime Markets API
+// lib/overtimeApi.ts - Using the correct Overtime Markets API endpoint
 // Types for Overtime/Thales markets based on official documentation
 export interface Market {
   address: string;
@@ -108,61 +108,107 @@ async function fetchApi(url: string): Promise<any> {
 }
 
 /**
- * Try multiple API endpoint formats to find the working one
- * @param networkId Network ID to fetch markets for
- * @returns Array of markets or empty array if all endpoints fail
+ * Get all markets from a specific network
+ * @param networkId Network ID (10 for Optimism, 42161 for Arbitrum, etc)
+ * @returns Array of markets or empty array if failed
  */
 async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
-  // List of potential API formats to try
-  const endpointFormats = [
-    `https://api.overtimemarkets.xyz/v2/networks/${networkId}/markets?status=open`,
-    `https://overtimemarkets.xyz/api/v2/networks/${networkId}/markets?status=open`,
-    `/api/proxy?url=${encodeURIComponent(`https://api.overtimemarkets.xyz/v2/networks/${networkId}/markets?status=open`)}`
-  ];
-
-  for (const endpoint of endpointFormats) {
-    try {
-      console.log(`Trying endpoint: ${endpoint}`);
-      const data = await fetchApi(endpoint);
+  // Use the confirmed working URL format that you verified
+  const url = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/markets`;
+  
+  try {
+    console.log(`Fetching markets from: ${url}`);
+    const data = await fetchApi(url);
+    
+    if (!data) {
+      console.log(`No data returned for network ${networkId}`);
+      return [];
+    }
+    
+    // Process the data based on the API response structure
+    let markets: Market[] = [];
+    
+    // If API returns an array, use it directly
+    if (Array.isArray(data)) {
+      markets = data.map(market => ({...market, networkId}));
+      console.log(`Found ${markets.length} markets in array format`);
+    } 
+    // If API returns an object with sports/leagues structure
+    else if (typeof data === 'object') {
+      console.log('API returned object format, processing nested data');
       
-      if (data) {
-        let markets: Market[] = [];
-        
-        // Process the data based on the API response structure
-        if (Array.isArray(data)) {
-          // If API returns an array, use it directly
-          markets = data.map(market => ({...market, networkId}));
-        } else if (typeof data === 'object') {
-          // If API returns an object with sports/leagues structure
-          Object.keys(data).forEach(sport => {
-            if (typeof data[sport] === 'object') {
-              Object.keys(data[sport]).forEach(leagueId => {
-                if (Array.isArray(data[sport][leagueId])) {
-                  // Map each market and ensure it has the networkId property
-                  const leagueMarkets = data[sport][leagueId].map((market: any) => ({
-                    ...market,
-                    networkId: networkId
-                  }));
-                  markets = markets.concat(leagueMarkets);
-                }
-              });
+      Object.keys(data).forEach(sport => {
+        if (typeof data[sport] === 'object') {
+          Object.keys(data[sport]).forEach(leagueId => {
+            if (Array.isArray(data[sport][leagueId])) {
+              // Map each market and ensure it has the networkId property
+              const leagueMarkets = data[sport][leagueId].map((market: any) => ({
+                ...market,
+                networkId: networkId
+              }));
+              markets = markets.concat(leagueMarkets);
             }
           });
         }
-        
-        if (markets.length > 0) {
-          console.log(`Found ${markets.length} markets using endpoint: ${endpoint}`);
-          return markets;
-        }
-      }
-    } catch (error) {
-      console.error(`Error with endpoint ${endpoint}:`, error);
+      });
+      
+      console.log(`Found ${markets.length} markets in nested format`);
     }
+    
+    // Add debug output for the first market if available
+    if (markets.length > 0) {
+      console.log('Sample of first market:', JSON.stringify(markets[0]).substring(0, 200) + '...');
+    }
+    
+    return markets;
+  } catch (error) {
+    console.error(`Error getting markets for network ${networkId}:`, error);
+    return [];
   }
+}
+
+/**
+ * Try the proxy route if direct API call fails
+ * @param networkId Network ID to fetch markets for
+ * @returns Array of markets
+ */
+async function tryProxyRoute(networkId: number): Promise<Market[]> {
+  const url = `/api/proxy?url=${encodeURIComponent(`https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/markets`)}`;
   
-  // If all endpoints fail, return empty array
-  console.error(`Couldn't fetch markets from any endpoint for network ${networkId}`);
-  return [];
+  try {
+    console.log(`Trying proxy route: ${url}`);
+    const data = await fetchApi(url);
+    
+    if (!data) {
+      return [];
+    }
+    
+    let markets: Market[] = [];
+    
+    // Process data similar to getMarketsForNetwork
+    if (Array.isArray(data)) {
+      markets = data.map(market => ({...market, networkId}));
+    } else if (typeof data === 'object') {
+      Object.keys(data).forEach(sport => {
+        if (typeof data[sport] === 'object') {
+          Object.keys(data[sport]).forEach(leagueId => {
+            if (Array.isArray(data[sport][leagueId])) {
+              const leagueMarkets = data[sport][leagueId].map((market: any) => ({
+                ...market,
+                networkId: networkId
+              }));
+              markets = markets.concat(leagueMarkets);
+            }
+          });
+        }
+      });
+    }
+    
+    return markets;
+  } catch (error) {
+    console.error(`Error using proxy route for network ${networkId}:`, error);
+    return [];
+  }
 }
 
 /**
@@ -174,7 +220,13 @@ async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networ
   const networks = [NETWORK_IDS.BASE, NETWORK_IDS.OPTIMISM, NETWORK_IDS.ARBITRUM];
   
   for (const networkId of networks) {
-    const markets = await getMarketsForNetwork(networkId);
+    // First try direct API endpoint
+    let markets = await getMarketsForNetwork(networkId);
+    
+    // If direct endpoint fails, try via proxy
+    if (markets.length === 0) {
+      markets = await tryProxyRoute(networkId);
+    }
     
     if (markets.length > 0) {
       console.log(`Using ${markets.length} markets from ${CHAIN_NAMES[networkId]}`);
@@ -183,7 +235,7 @@ async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networ
   }
   
   console.error("No markets found on any network");
-  return { markets: [], networkId: NETWORK_IDS.BASE };
+  return { markets: [], networkId: NETWORK_IDS.OPTIMISM };
 }
 
 /**
@@ -208,12 +260,14 @@ export async function getActiveMarkets(): Promise<Market[]> {
     // Find markets from supported networks
     const { markets, networkId } = await findMarketsFromAllNetworks();
     
-    // Update cache
-    marketsCache = {
-      timestamp: now,
-      markets,
-      networkId
-    };
+    // Update cache if we found markets
+    if (markets.length > 0) {
+      marketsCache = {
+        timestamp: now,
+        markets,
+        networkId
+      };
+    }
     
     return markets;
   } catch (error) {
@@ -238,7 +292,7 @@ export async function getBigGame(): Promise<Market | null> {
     }
     
     // Find market with highest liquidity/interest
-    // Note: sorting logic may need to be adjusted based on actual data structure
+    // Sort by status (prioritize active games) and maturity (closest game first)
     const sortedMarkets = [...markets].sort((a, b) => {
       // Sort by status (prioritize active games)
       const statusDiff = (a.status || 0) - (b.status || 0);
@@ -297,15 +351,15 @@ export async function getQuote(
       }]
     };
     
-    // Try multiple API endpoint formats for quote
-    const endpoints = [
-      `https://api.overtimemarkets.xyz/v2/networks/${networkId}/quote`,
-      `https://overtimemarkets.xyz/api/v2/networks/${networkId}/quote`,
-      `/api/proxy?url=${encodeURIComponent(`https://api.overtimemarkets.xyz/v2/networks/${networkId}/quote`)}`
-    ];
+    // Try both the direct endpoint and the proxy
+    const directUrl = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/quote`;
+    const proxyUrl = `/api/proxy?url=${encodeURIComponent(directUrl)}`;
     
-    for (const url of endpoints) {
+    const urls = [directUrl, proxyUrl];
+    
+    for (const url of urls) {
       try {
+        console.log(`Trying to get quote from: ${url}`);
         const response = await fetch(url, {
           method: 'POST',
           headers: {
