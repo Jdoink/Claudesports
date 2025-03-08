@@ -1,11 +1,19 @@
-// components/BigGame.tsx - Corrected version
+// components/BigGame.tsx - With network display
 import React, { useEffect, useState } from 'react';
-import { getBigGame, Market } from '@/lib/overtimeApi';
+import { getBigGame, Market, getCurrentNetworkId } from '@/lib/overtimeApi';
+
+// Chain names mapping
+const CHAIN_NAMES = {
+  8453: 'Base',
+  10: 'Optimism',
+  42161: 'Arbitrum'
+};
 
 const BigGame: React.FC = () => {
   const [game, setGame] = useState<Market | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [networkId, setNetworkId] = useState<number>(8453); // Default to Base
   
   useEffect(() => {
     const fetchBigGame = async () => {
@@ -13,6 +21,7 @@ const BigGame: React.FC = () => {
         setLoading(true);
         const bigGame = await getBigGame();
         setGame(bigGame);
+        setNetworkId(getCurrentNetworkId());
         setError(null);
       } catch (err) {
         setError('Failed to load the big game. Please try again later.');
@@ -50,6 +59,21 @@ const BigGame: React.FC = () => {
       minute: '2-digit',
       timeZoneName: 'short'
     });
+  };
+  
+  // Get network name from ID
+  const getNetworkName = (id: number) => {
+    return CHAIN_NAMES[id as keyof typeof CHAIN_NAMES] || `Chain ${id}`;
+  };
+  
+  // Get network color
+  const getNetworkColor = (id: number) => {
+    switch(id) {
+      case 8453: return 'bg-blue-600'; // Base
+      case 10: return 'bg-red-600';    // Optimism
+      case 42161: return 'bg-indigo-600'; // Arbitrum
+      default: return 'bg-gray-600';
+    }
   };
   
   if (loading) {
@@ -98,13 +122,8 @@ const BigGame: React.FC = () => {
             <div className="mt-2 bg-gray-800 px-3 py-1 rounded-full text-xs">
               {game.category || game.sport.toUpperCase()}
             </div>
-            <div className="mt-2 bg-blue-600 px-3 py-1 rounded-full text-xs flex items-center">
-              <svg width="16" height="16" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="mr-1">
-                <path d="M16 0C7.164 0 0 7.164 0 16s7.164 16 16 16 16-7.164 16-16S24.836 0 16 0z" fill="#0052FF"/>
-                <path d="M16 6.82c-5.065 0-9.18 4.115-9.18 9.18s4.115 9.18 9.18 9.18 9.18-4.115 9.18-9.18-4.115-9.18-9.18-9.18zm0 15.842c-3.67 0-6.661-2.992-6.661-6.661S12.33 9.339 16 9.339s6.661 2.992 6.661 6.661-2.991 6.661-6.661 6.661z" fill="white"/>
-                <path d="M19.254 12.982h-6.508v3.345H19.254v-3.345z" fill="white"/>
-              </svg>
-              Base Chain
+            <div className={`mt-2 ${getNetworkColor(networkId)} px-3 py-1 rounded-full text-xs flex items-center`}>
+              {getNetworkName(networkId)} Chain
             </div>
           </div>
           
