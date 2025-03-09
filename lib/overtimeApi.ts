@@ -29,31 +29,38 @@ const NETWORK_IDS = {
 };
 
 // Chain names for display
-const CHAIN_NAMES = {
+const CHAIN_NAMES: Record<number, string> = {
   [NETWORK_IDS.OPTIMISM]: 'Optimism',
   [NETWORK_IDS.ARBITRUM]: 'Arbitrum',
   [NETWORK_IDS.BASE]: 'Base'
 };
 
+// Define the contract address structure
+interface ContractAddresses {
+  USDC: string;
+  OVERTIME_AMM: string;
+  SPORT_MARKETS_MANAGER: string;
+}
+
 // Contract addresses from SportsAMMV2 documentation
-const CONTRACT_ADDRESSES = {
+const CONTRACT_ADDRESSES: Record<number, ContractAddresses> = {
+  // Base Mainnet
+  8453: {
+    USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    OVERTIME_AMM: '0x80903Aa4d358542652c8D4B33cd942EA1Bf8fd41',
+    SPORT_MARKETS_MANAGER: '0x3Ed830e92eFfE68C0d1216B2b5115B1bceBB087C',
+  },
   // Optimism Mainnet
-  [NETWORK_IDS.OPTIMISM]: {
+  10: {
     USDC: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
     OVERTIME_AMM: '0xad41C77d99E282267C1492cdEFe528D7d5044253',
     SPORT_MARKETS_MANAGER: '0x8606926e4c3Cfb9d4B6742A62e1923854F4026dc',
   },
   // Arbitrum Mainnet
-  [NETWORK_IDS.ARBITRUM]: {
+  42161: {
     USDC: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',
     OVERTIME_AMM: '0x82872A82E70081D42f5c2610259324Bb463B2bC2',
     SPORT_MARKETS_MANAGER: '0xb3E8C659CF95BeA8c81d8D06407C5c7A2D75B1BC',
-  },
-  // Base Mainnet - From Overtime tweet
-  [NETWORK_IDS.BASE]: {
-    USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-    OVERTIME_AMM: '0x80903Aa4d358542652c8D4B33cd942EA1Bf8fd41',
-    SPORT_MARKETS_MANAGER: '0x3Ed830e92eFfE68C0d1216B2b5115B1bceBB087C',
   }
 };
 
@@ -132,7 +139,7 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
       });
     });
     
-    console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId]}`);
+    console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
     return markets;
   } catch (error) {
     console.error(`Error getting markets for network ${networkId}:`, error);
@@ -152,7 +159,7 @@ async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networ
     const markets = await getMarketsForNetwork(networkId);
     
     if (markets.length > 0) {
-      console.log(`Using ${markets.length} markets from ${CHAIN_NAMES[networkId]}`);
+      console.log(`Using ${markets.length} markets from ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
       return { markets, networkId };
     }
   }
@@ -174,7 +181,7 @@ export async function getActiveMarkets(): Promise<Market[]> {
       marketsCache.markets.length > 0 && 
       now - marketsCache.timestamp < CACHE_EXPIRATION
     ) {
-      console.log(`Using cached markets from ${CHAIN_NAMES[marketsCache.networkId]}`);
+      console.log(`Using cached markets from ${CHAIN_NAMES[marketsCache.networkId] || 'Unknown Chain'}`);
       return marketsCache.markets;
     }
     
@@ -327,18 +334,19 @@ export async function placeBet(
     const signer = await ethersProvider.getSigner();
     
     // Check that user is on the correct network
-    const chainId = await ethersProvider.getNetwork().then(network => network.chainId);
+    const chainId = await ethersProvider.getNetwork().then(network => Number(network.chainId));
     
     // Convert chainId to number for comparison
-    if (Number(chainId) !== networkId) {
-      throw new Error(`Please switch to ${CHAIN_NAMES[networkId]} network to place this bet`);
+    if (chainId !== networkId) {
+      throw new Error(`Please switch to ${CHAIN_NAMES[networkId] || 'the correct'} network to place this bet`);
     }
     
     // Get contract addresses for the network
-    const contractAddresses = CONTRACT_ADDRESSES[networkId];
-    if (!contractAddresses) {
+    if (!CONTRACT_ADDRESSES[networkId]) {
       throw new Error(`Unsupported network: ${networkId}`);
     }
+    
+    const contractAddresses = CONTRACT_ADDRESSES[networkId];
     
     // Create contract instances
     const usdcContract = new ethers.Contract(contractAddresses.USDC, ERC20_ABI, signer);
