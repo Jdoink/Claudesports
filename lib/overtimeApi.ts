@@ -1,12 +1,5 @@
-// lib/overtimeApi.ts - Updated with correct Market interface
-// Odds data structure from the API
-export interface OddsData {
-  american: number;
-  decimal: number;
-  normalizedImplied: number;
-}
-
-// Types for Overtime/Thales markets based on actual API response structure
+// lib/overtimeApi.ts - Updated with correct API endpoints from documentation
+// Types for Overtime/Thales markets based on official documentation
 export interface Market {
   address: string;
   gameId: string;
@@ -15,29 +8,17 @@ export interface Market {
   typeId: number;
   maturity: number;
   status: number;
-  statusCode?: string;
   line?: number;
-  playerId?: string | number;
+  playerId?: string;
   position?: number;
   homeTeam: string;
   awayTeam: string;
+  homeOdds: number;
+  awayOdds: number;
+  drawOdds?: number;
   leagueId?: number;
   leagueName?: string;
   networkId: number;
-  isOpen?: boolean;
-  isResolved?: boolean;
-  isCancelled?: boolean;
-  isOneSideMarket?: boolean;
-  isPlayerPropsMarket?: boolean;
-  isYesNoPlayerPropsMarket?: boolean;
-  isOneSidePlayerPropsMarket?: boolean;
-  isPaused?: boolean;
-  odds: OddsData[]; // This is the actual structure from the API
-  originalMarketName?: string;
-  playerProps?: any;
-  proof?: string[];
-  childMarkets?: Market[];
-  combinedPositions?: any[];
 }
 
 // Network IDs as seen in the documentation
@@ -47,22 +28,15 @@ const NETWORK_IDS = {
   BASE: 8453
 };
 
-// NBA sportId - according to Thales documentation
-const NBA_SPORT_ID = 9;
-
 // Chain names for display
-const CHAIN_NAMES: Record<number, string> = {
+const CHAIN_NAMES = {
   [NETWORK_IDS.OPTIMISM]: 'Optimism',
   [NETWORK_IDS.ARBITRUM]: 'Arbitrum',
   [NETWORK_IDS.BASE]: 'Base'
 };
 
 // Contract addresses from SportsAMMV2 documentation
-const CONTRACT_ADDRESSES: Record<number, {
-  USDC: string;
-  OVERTIME_AMM: string;
-  SPORT_MARKETS_MANAGER: string;
-}> = {
+const CONTRACT_ADDRESSES = {
   // Optimism Mainnet
   [NETWORK_IDS.OPTIMISM]: {
     USDC: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
@@ -98,20 +72,6 @@ let marketsCache: {
 const CACHE_EXPIRATION = 5 * 60 * 1000;
 
 /**
- * Format American odds from a number value
- * @param americanOdds American odds as a number
- * @returns Formatted string with +/- prefix
- */
-export function formatAmericanOdds(odds: OddsData | null | undefined): string {
-  if (!odds || !odds.american || isNaN(odds.american)) {
-    return 'N/A';
-  }
-  
-  const americanOdds = odds.american;
-  return americanOdds > 0 ? `+${Math.round(americanOdds)}` : `${Math.round(americanOdds)}`;
-}
-
-/**
  * Fetch data from the Overtime API with error handling
  * @param url API endpoint URL
  * @returns Promise with parsed data or null if failed
@@ -142,16 +102,14 @@ async function fetchApi(url: string): Promise<any> {
 }
 
 /**
- * Get all NBA markets from a specific network
+ * Get all markets from a specific network
  * @param networkId Network ID (10 for Optimism, 42161 for Arbitrum, etc)
  * @returns Array of markets or empty array if failed
  */
 async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
   try {
-    // API endpoint
-    const url = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/markets`;
-    
-    console.log(`Attempting to fetch markets from network ${networkId} using URL: ${url}`);
+    // Correct API endpoint from the documentation 
+    const url = `https://api.overtimemarkets.xyz/v2/networks/${networkId}/markets?status=open`;
     
     const data = await fetchApi(url);
     
@@ -160,38 +118,22 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
       return [];
     }
     
-    // Filter for NBA markets only
-    let nbaMarkets: Market[] = [];
+    // Restructure data if needed based on the response format
+    let markets: Market[] = [];
     
+    // API returns data grouped by sport and league - flatten it
     Object.keys(data).forEach(sport => {
       Object.keys(data[sport]).forEach(leagueId => {
+        // Add each market to the array
         const leagueMarkets = data[sport][leagueId];
-        if (Array.isArray(leagueMarkets) && leagueMarkets.length > 0) {
-          const sampleMarket = leagueMarkets[0];
-          
-          // Filter for NBA or Basketball games
-          if (
-            sport.toLowerCase().includes('basket') ||
-            sport.toLowerCase().includes('nba') ||
-            sampleMarket.sport?.toLowerCase().includes('basket') ||
-            sampleMarket.leagueName?.toLowerCase().includes('nba') ||
-            sampleMarket.sportId === NBA_SPORT_ID
-          ) {
-            console.log(`Found NBA/Basketball markets in ${sport} league ${leagueId}`);
-            nbaMarkets = nbaMarkets.concat(leagueMarkets);
-          }
+        if (Array.isArray(leagueMarkets)) {
+          markets = markets.concat(leagueMarkets);
         }
       });
     });
     
-    console.log(`Found ${nbaMarkets.length} NBA/Basketball markets on ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
-    
-    if (nbaMarkets.length > 0) {
-      // Log detailed data for sample market
-      console.log("Sample NBA market:", nbaMarkets[0]);
-    }
-    
-    return nbaMarkets;
+    console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId]}`);
+    return markets;
   } catch (error) {
     console.error(`Error getting markets for network ${networkId}:`, error);
     return [];
@@ -199,7 +141,7 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
 }
 
 /**
- * Find NBA markets from all supported networks, prioritizing Base
+ * Find markets from all supported networks, prioritizing Base
  * @returns Object with markets array and the network ID they came from
  */
 async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networkId: number }> {
@@ -207,21 +149,20 @@ async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networ
   const networks = [NETWORK_IDS.BASE, NETWORK_IDS.OPTIMISM, NETWORK_IDS.ARBITRUM];
   
   for (const networkId of networks) {
-    console.log(`Trying to fetch NBA markets from network ${networkId} (${CHAIN_NAMES[networkId] || 'Unknown'})`);
     const markets = await getMarketsForNetwork(networkId);
     
     if (markets.length > 0) {
-      console.log(`Using ${markets.length} NBA markets from ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
+      console.log(`Using ${markets.length} markets from ${CHAIN_NAMES[networkId]}`);
       return { markets, networkId };
     }
   }
   
-  console.log("No NBA markets found on any network");
+  console.log("No markets found on any network");
   return { markets: [], networkId: NETWORK_IDS.OPTIMISM };
 }
 
 /**
- * Get the highest liquidity active NBA markets
+ * Get the highest liquidity active markets
  * @returns Promise with array of markets
  */
 export async function getActiveMarkets(): Promise<Market[]> {
@@ -233,11 +174,11 @@ export async function getActiveMarkets(): Promise<Market[]> {
       marketsCache.markets.length > 0 && 
       now - marketsCache.timestamp < CACHE_EXPIRATION
     ) {
-      console.log(`Using cached NBA markets from ${CHAIN_NAMES[marketsCache.networkId] || 'Unknown Chain'}`);
+      console.log(`Using cached markets from ${CHAIN_NAMES[marketsCache.networkId]}`);
       return marketsCache.markets;
     }
     
-    console.log("Cache expired or empty, fetching fresh NBA market data");
+    console.log("Cache expired or empty, fetching fresh data");
     
     // Find markets from supported networks
     const { markets, networkId } = await findMarketsFromAllNetworks();
@@ -251,7 +192,7 @@ export async function getActiveMarkets(): Promise<Market[]> {
     
     return markets;
   } catch (error) {
-    console.error('Failed to fetch active NBA markets:', error);
+    console.error('Failed to fetch active markets:', error);
     
     // Return cached data if available, otherwise empty array
     return marketsCache.markets.length > 0 ? marketsCache.markets : [];
@@ -267,11 +208,12 @@ export async function getBigGame(): Promise<Market | null> {
     const markets = await getActiveMarkets();
     
     if (markets.length === 0) {
-      console.log('No NBA markets available');
+      console.log('No markets available');
       return null;
     }
     
     // Find market with highest liquidity/interest
+    // Note: sorting logic may need to be adjusted based on actual data structure
     const sortedMarkets = [...markets].sort((a, b) => {
       // Sort by status (prioritize active games)
       const statusDiff = (a.status || 0) - (b.status || 0);
@@ -289,16 +231,11 @@ export async function getBigGame(): Promise<Market | null> {
     });
     
     const topMarket = sortedMarkets[0];
-    console.log('Selected top NBA market:', topMarket);
-    
-    // Verify the odds are there
-    if (topMarket && topMarket.odds) {
-      console.log('Market odds:', topMarket.odds);
-    }
+    console.log('Selected top market:', topMarket);
     
     return topMarket;
   } catch (error) {
-    console.error('Failed to get the big NBA game:', error);
+    console.error('Failed to get the big game:', error);
     return null;
   }
 }
@@ -318,7 +255,7 @@ export async function getQuote(
   networkId: number
 ): Promise<any> {
   try {
-    // Format the trade data according to the correct API format from the docs
+    // Format the trade data according to the API
     const tradeData = {
       buyInAmount: amount,
       tradeData: [{
@@ -328,39 +265,30 @@ export async function getQuote(
         maturity: market.maturity,
         status: market.status,
         line: market.line || 0,
-        playerId: market.playerId || 0,
+        playerId: market.playerId || "",
         position: position,
-        // Get the actual odds array from the market, or build it if needed
-        odds: market.odds?.map(o => o.decimal) || [market.odds?.[0]?.decimal || 0, market.odds?.[1]?.decimal || 0, 0],
-        combinedPositions: [[], [], []],
-        live: false
-      }],
-      collateral: "USDC"  // Using USDC as default collateral
+        odds: [market.homeOdds, market.awayOdds, market.drawOdds || 0],
+        combinedPositions: ["", "", ""]
+      }]
     };
     
-    console.log('Sending quote request with data:', JSON.stringify(tradeData, null, 2));
+    // Get quote from the API
+    const url = `https://api.overtimemarkets.xyz/v2/networks/${networkId}/quote`;
     
-    // Use our proxy endpoint to forward the request
-    const response = await fetch('/api/quote', {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        networkId: networkId,
-        tradeData: tradeData
-      })
+      body: JSON.stringify(tradeData)
     });
     
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Error from quote API:', errorText);
       throw new Error(`Failed to get quote: ${response.statusText}`);
     }
     
     const quoteData = await response.json();
-    console.log('Quote response:', quoteData);
     return quoteData;
   } catch (error) {
     console.error('Error getting quote:', error);
@@ -389,33 +317,32 @@ export async function placeBet(
     
     // Import necessary libraries
     const { ethers } = await import('ethers');
-    const { CONTRACT_ADDRESSES, OVERTIME_MARKET_ABI, ERC20_ABI } = await import('./contractAbis');
+    const { CONTRACT_ADDRESSES, OVERTIME_MARKET_ABI, ERC20_ABI } = await import('@/lib/contractAbis');
     
     // Chain ID from the market
-    const networkId = market.networkId;
+    const networkId = market.networkId || 8453; // Default to Base if not specified
     
     // Create provider and signer
     const ethersProvider = new ethers.BrowserProvider(provider);
     const signer = await ethersProvider.getSigner();
     
-    // Check that user is on the correct network - using ethers v6 syntax
-    const network = await ethersProvider.getNetwork();
-    const chainId = Number(network.chainId);
+    // Check that user is on the correct network
+    const chainId = await signer.provider.getChainId();
     
-    if (chainId !== networkId) {
-      throw new Error(`Please switch to ${CHAIN_NAMES[networkId] || 'the correct'} network to place this bet`);
+    // Convert chainId to number for comparison
+    if (Number(chainId) !== networkId) {
+      throw new Error(`Please switch to ${CHAIN_NAMES[networkId]} network to place this bet`);
     }
     
     // Get contract addresses for the network
-    // Use a type check to ensure TypeScript knows this is valid
-    const contractAddresses = CONTRACT_ADDRESSES[networkId as keyof typeof CONTRACT_ADDRESSES];
+    const contractAddresses = CONTRACT_ADDRESSES[networkId];
     if (!contractAddresses) {
       throw new Error(`Unsupported network: ${networkId}`);
     }
     
     // Create contract instances
     const usdcContract = new ethers.Contract(contractAddresses.USDC, ERC20_ABI, signer);
-    const sportsAMMContract = new ethers.Contract(contractAddresses.OVERTIME_AMM, OVERTIME_MARKET_ABI, signer);
+    const overtimeAMMContract = new ethers.Contract(contractAddresses.OVERTIME_AMM, OVERTIME_MARKET_ABI, signer);
     
     // Convert amount to USDC units (USDC has 6 decimals)
     const amountInWei = ethers.parseUnits(amount, 6);
@@ -427,44 +354,27 @@ export async function placeBet(
     }
     
     // Get quote for the bet - this determines expected payout
-    const quoteResult = await getQuote(market, position, parseFloat(amount), networkId);
-    console.log("Quote result:", quoteResult);
-    
-    if (!quoteResult || !quoteResult.quoteData || !quoteResult.quoteData.totalQuote) {
-      throw new Error("Failed to get quote for this bet");
-    }
-    
-    // Get the expected payout from the quote - this format is from the example API response
-    const expectedPayout = quoteResult.quoteData.totalQuote.decimal || 0;
+    // For simplicity, let's use a hardcoded slippage of 5%
+    const expectedPayout = parseFloat(amount) * (position === 0 ? market.homeOdds : market.awayOdds);
+    const slippageAdjustedPayout = expectedPayout * 0.95; // 5% slippage
     
     // Approve USDC spending
     console.log("Approving USDC...");
     const approveTx = await usdcContract.approve(contractAddresses.OVERTIME_AMM, amountInWei);
     await approveTx.wait();
-    console.log("USDC approved, transaction hash:", approveTx.hash);
     
-    // Place the bet using the appropriate function from the contract
-    console.log("Placing bet...", {
-      market: market.address,
-      position,
-      amount: amountInWei.toString(),
-      expectedPayout,
-      collateral: contractAddresses.USDC
-    });
-    
-    // Execute the trade transaction
-    const betTx = await sportsAMMContract.buyFromAMMWithDifferentCollateralAndReferrer(
-      market.address,            // market address
-      position,                  // position (0 for home, 1 for away)
-      amountInWei,               // amount of USDC to spend
-      expectedPayout,            // expected payout from the quote
-      contractAddresses.USDC,    // USDC address
-      ethers.ZeroAddress         // no referrer
+    // Place the bet using buyFromAMMWithDifferentCollateralAndReferrer function
+    console.log("Placing bet...");
+    const betTx = await overtimeAMMContract.buyFromAMMWithDifferentCollateralAndReferrer(
+      market.address,        // market address
+      position,              // 0 for home, 1 for away
+      amountInWei,           // amount of USDC to spend
+      ethers.parseUnits(slippageAdjustedPayout.toString(), 6),  // minimum expected payout with slippage
+      contractAddresses.USDC, // USDC address
+      ethers.ZeroAddress     // no referrer
     );
     
-    console.log("Bet transaction submitted:", betTx.hash);
     const receipt = await betTx.wait();
-    console.log("Bet transaction confirmed:", receipt);
     
     return {
       success: true,
