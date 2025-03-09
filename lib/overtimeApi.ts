@@ -327,7 +327,7 @@ export async function placeBet(
     const signer = await ethersProvider.getSigner();
     
     // Check that user is on the correct network
-    const chainId = await signer.provider.getChainId();
+    const chainId = await ethersProvider.getNetwork().then(network => network.chainId);
     
     // Convert chainId to number for comparison
     if (Number(chainId) !== networkId) {
