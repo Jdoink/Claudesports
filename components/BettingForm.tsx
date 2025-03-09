@@ -192,6 +192,21 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             <button
               type="button"
               className={`p-4 rounded-lg border-2 ${
+                selectedTeam === 'home'
+                  ? 'border-yellow-500 bg-gray-800'
+                  : 'border-gray-700 bg-gray-900 hover:border-gray-500'
+              }`}
+              onClick={() => handleTeamSelect('home')}
+            >
+              <div className="font-bold mb-1">{game.homeTeam}</div>
+              <div className="text-yellow-500 font-medium">
+                {formatOdds(game.homeOdds)}
+              </div>
+            </button>
+            
+            <button
+              type="button"
+              className={`p-4 rounded-lg border-2 ${
                 selectedTeam === 'away'
                   ? 'border-yellow-500 bg-gray-800'
                   : 'border-gray-700 bg-gray-900 hover:border-gray-500'
@@ -296,19 +311,4 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
   );
 };
 
-export default BettingForm;"
-              className={`p-4 rounded-lg border-2 ${
-                selectedTeam === 'home'
-                  ? 'border-yellow-500 bg-gray-800'
-                  : 'border-gray-700 bg-gray-900 hover:border-gray-500'
-              }`}
-              onClick={() => handleTeamSelect('home')}
-            >
-              <div className="font-bold mb-1">{game.homeTeam}</div>
-              <div className="text-yellow-500 font-medium">
-                {formatOdds(game.homeOdds)}
-              </div>
-            </button>
-            
-            <button
-              type="button
+export default BettingForm;
