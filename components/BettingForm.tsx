@@ -1,14 +1,7 @@
-// components/BettingForm.tsx - With correct odds access
+// components/BettingForm.tsx - Updated with network validation
 import React, { useState, useEffect } from 'react';
-import { isWalletConnected, getConnectedAccount } from '@/lib/web3';
+import { isWalletConnected, getConnectedAccount, getChainId, switchToBaseChain } from '@/lib/web3';
 import { Market, placeBet } from '@/lib/overtimeApi';
-
-// Define an interface for the odds structure in the API
-interface OddsData {
-  american: number;
-  decimal: number;
-  normalizedImplied: number;
-}
 
 interface BettingFormProps {
   game: Market | null;
@@ -21,18 +14,20 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
   const [betAmount, setBetAmount] = useState<string>('');
   const [isPlacingBet, setIsPlacingBet] = useState<boolean>(false);
   const [betResult, setBetResult] = useState<{ success: boolean; message: string; txHash?: string } | null>(null);
-  const [homeOdds, setHomeOdds] = useState<OddsData | null>(null);
-  const [awayOdds, setAwayOdds] = useState<OddsData | null>(null);
   
   // Check wallet connection status
   useEffect(() => {
     const checkWalletConnection = async () => {
-      const connected = await isWalletConnected();
-      setIsConnected(connected);
-      
-      if (connected) {
-        const account = await getConnectedAccount();
-        setWalletAddress(account);
+      try {
+        const connected = await isWalletConnected();
+        setIsConnected(connected);
+        
+        if (connected) {
+          const account = await getConnectedAccount();
+          setWalletAddress(account);
+        }
+      } catch (error) {
+        console.error('Error checking connection:', error);
       }
     };
     
@@ -44,25 +39,12 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     return () => clearInterval(intervalId);
   }, []);
 
-  // Update odds when game changes
+  // Reset form when game changes
   useEffect(() => {
     if (game?.gameId) {
-      // Reset form
       setSelectedTeam(null);
       setBetAmount('');
       setBetResult(null);
-      
-      // Extract odds from the correct nested structure
-      if (game.odds && Array.isArray(game.odds) && game.odds.length >= 2) {
-        setHomeOdds(game.odds[0]);
-        setAwayOdds(game.odds[1]);
-        console.log("Betting form - Home odds:", game.odds[0]);
-        console.log("Betting form - Away odds:", game.odds[1]);
-      } else {
-        console.warn("Odds data not available in the expected format:", game?.odds);
-        setHomeOdds(null);
-        setAwayOdds(null);
-      }
     }
   }, [game?.gameId]);
 
@@ -105,14 +87,40 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
       const { getProvider } = await import('@/lib/web3');
       const provider = getProvider();
       
+      // Add explicit network check and switching here before proceeding
+      const currentChainId = await getChainId();
+      const expectedChainId = "0x2105"; // 8453 in hex (Base Mainnet)
+      
+      // If not on Base chain, attempt to switch networks first
+      if (currentChainId !== expectedChainId) {
+        try {
+          await switchToBaseChain();
+          // Give time for the network switch to complete
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (switchError) {
+          console.error('Failed to switch network:', switchError);
+          setBetResult({
+            success: false,
+            message: 'Please switch to Base Mainnet in your wallet to place bets.'
+          });
+          setIsPlacingBet(false);
+          return;
+        }
+      }
+      
+      // Double-check we're on the right network after switching
+      const newChainId = await getChainId();
+      if (newChainId !== expectedChainId) {
+        setBetResult({
+          success: false,
+          message: 'Please switch to Base Mainnet in your wallet manually and try again.'
+        });
+        setIsPlacingBet(false);
+        return;
+      }
+      
       // Team index: 0 for home team, 1 for away team
       const teamIndex = selectedTeam === 'home' ? 0 : 1;
-      
-      console.log('Placing bet:', {
-        market: game,
-        amount: betAmount,
-        position: teamIndex
-      });
       
       // Call the placeBet function with the actual provider
       const result = await placeBet(
@@ -154,29 +162,20 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
     );
   }
 
-  // Format American odds for display
-  const formatAmericanOdds = (odds: OddsData | null): string => {
-    if (!odds || !odds.american || isNaN(odds.american)) {
-      return 'N/A';
+  // Format odds for display (American format)
+  const formatOdds = (odds: number) => {
+    if (odds >= 2) {
+      return `+${Math.round((odds - 1) * 100)}`;
+    } else {
+      return `-${Math.round(100 / (odds - 1))}`;
     }
-    
-    const americanOdds = odds.american;
-    return americanOdds > 0 ? `+${Math.round(americanOdds)}` : `${Math.round(americanOdds)}`;
   };
 
-  // Calculate potential winnings using the decimal odds from the nested structure
+  // Calculate potential winnings
   const calculateWinnings = () => {
-    if (!selectedTeam || !betAmount || parseFloat(betAmount) <= 0) {
-      return 0;
-    }
-    
-    const odds = selectedTeam === 'home' ? homeOdds : awayOdds;
-    if (!odds || !odds.decimal || isNaN(odds.decimal) || odds.decimal <= 0) {
-      return 0;
-    }
-    
-    // Use the decimal odds to calculate winnings
-    return parseFloat(betAmount) * odds.decimal;
+    if (!selectedTeam || !betAmount || parseFloat(betAmount) <= 0) return 0;
+    const odds = selectedTeam === 'home' ? game.homeOdds : game.awayOdds;
+    return parseFloat(betAmount) * odds;
   };
 
   return (
@@ -193,21 +192,6 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             <button
               type="button"
               className={`p-4 rounded-lg border-2 ${
-                selectedTeam === 'home'
-                  ? 'border-yellow-500 bg-gray-800'
-                  : 'border-gray-700 bg-gray-900 hover:border-gray-500'
-              }`}
-              onClick={() => handleTeamSelect('home')}
-            >
-              <div className="font-bold mb-1">{game.homeTeam}</div>
-              <div className="text-yellow-500 font-medium">
-                {formatAmericanOdds(homeOdds)}
-              </div>
-            </button>
-            
-            <button
-              type="button"
-              className={`p-4 rounded-lg border-2 ${
                 selectedTeam === 'away'
                   ? 'border-yellow-500 bg-gray-800'
                   : 'border-gray-700 bg-gray-900 hover:border-gray-500'
@@ -216,7 +200,7 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
             >
               <div className="font-bold mb-1">{game.awayTeam}</div>
               <div className="text-yellow-500 font-medium">
-                {formatAmericanOdds(awayOdds)}
+                {formatOdds(game.awayOdds)}
               </div>
             </button>
           </div>
@@ -312,4 +296,19 @@ const BettingForm: React.FC<BettingFormProps> = ({ game }) => {
   );
 };
 
-export default BettingForm;
+export default BettingForm;"
+              className={`p-4 rounded-lg border-2 ${
+                selectedTeam === 'home'
+                  ? 'border-yellow-500 bg-gray-800'
+                  : 'border-gray-700 bg-gray-900 hover:border-gray-500'
+              }`}
+              onClick={() => handleTeamSelect('home')}
+            >
+              <div className="font-bold mb-1">{game.homeTeam}</div>
+              <div className="text-yellow-500 font-medium">
+                {formatOdds(game.homeOdds)}
+              </div>
+            </button>
+            
+            <button
+              type="button
