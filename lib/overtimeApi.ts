@@ -1,4 +1,5 @@
-// lib/overtimeApi.ts - Updated with correct Thales API endpoints
+// lib/overtimeApi.ts - Using original, correct API endpoints with fixed mock data
+import { ethers } from 'ethers';
 
 export interface Market {
   address: string;
@@ -21,7 +22,7 @@ export interface Market {
   networkId: number;
 }
 
-// Network IDs
+// Network IDs as seen in the documentation
 const NETWORK_IDS = {
   OPTIMISM: 10,
   ARBITRUM: 42161,
@@ -50,30 +51,52 @@ let marketsCache: {
 const CACHE_EXPIRATION = 5 * 60 * 1000;
 
 /**
- * Use proxy for API calls to avoid CORS issues
+ * Fetch data from the Overtime API with error handling
  */
-async function fetchViaProxy(url: string, options: RequestInit = {}): Promise<any> {
+async function fetchApi(url: string, options: RequestInit = {}): Promise<any> {
   try {
-    console.log(`Fetching via proxy: ${url}`);
+    console.log(`Fetching from: ${url}`);
     
-    // Use our internal API proxy route
-    const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
-    
-    const response = await fetch(proxyUrl, {
-      ...options,
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        ...options.headers
+    // First try direct fetch
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...options.headers
+        },
+        cache: 'no-store'
+      });
+      
+      if (!response.ok) {
+        console.error(`Direct API call returned status ${response.status}: ${response.statusText}`);
+        throw new Error(`API returned status ${response.status}`);
       }
-    });
-    
-    if (!response.ok) {
-      console.error(`API returned status ${response.status}: ${response.statusText}`);
-      return null;
+      
+      return await response.json();
+    } catch (directFetchError) {
+      console.log("Direct fetch failed, trying via proxy...");
+      
+      // Fallback to proxy
+      const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
+      
+      const proxyResponse = await fetch(proxyUrl, {
+        ...options,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...options.headers
+        }
+      });
+      
+      if (!proxyResponse.ok) {
+        console.error(`Proxy API call returned status ${proxyResponse.status}: ${proxyResponse.statusText}`);
+        throw new Error(`Proxy API returned status ${proxyResponse.status}`);
+      }
+      
+      return await proxyResponse.json();
     }
-    
-    return await response.json();
   } catch (error) {
     console.error(`Error fetching from ${url}:`, error);
     return null;
@@ -85,11 +108,11 @@ async function fetchViaProxy(url: string, options: RequestInit = {}): Promise<an
  */
 async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
   try {
-    // UPDATED: Use the correct, current Thales API endpoints
-    const url = `https://api.thalesmarket.io/overtime/networks/${networkId}/markets?status=open`;
+    // Use the original, correct API endpoint
+    const url = `https://api.overtimemarkets.xyz/v2/networks/${networkId}/markets?status=open`;
     
     console.log(`Attempting to fetch markets from: ${url}`);
-    const data = await fetchViaProxy(url);
+    const data = await fetchApi(url);
     
     if (!data) {
       console.log(`No data returned for network ${networkId}`);
@@ -99,7 +122,6 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
     // Restructure data
     let markets: Market[] = [];
     
-    // API returns data grouped by sport and league - flatten it
     try {
       Object.keys(data).forEach(sport => {
         Object.keys(data[sport]).forEach(leagueId => {
@@ -109,17 +131,57 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
           }
         });
       });
+      
+      // Validate all market addresses to ensure checksummed format
+      markets = markets.map(market => ({
+        ...market,
+        address: ethers.getAddress(market.address) // Ensures proper checksum format
+      }));
+      
+      console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
     } catch (parseError) {
       console.error("Error parsing API response:", parseError);
-      console.log("Raw API response:", data);
       return [];
     }
     
-    console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
     return markets;
   } catch (error) {
     console.error(`Error getting markets for network ${networkId}:`, error);
-    return [];
+    
+    // Try alternate endpoint if primary fails
+    try {
+      const alternateUrl = `https://api.thalesmarket.io/overtime/networks/${networkId}/markets?status=open`;
+      console.log(`Trying alternate endpoint: ${alternateUrl}`);
+      
+      const alternateData = await fetchApi(alternateUrl);
+      
+      if (!alternateData) {
+        return [];
+      }
+      
+      let alternateMarkets: Market[] = [];
+      
+      Object.keys(alternateData).forEach(sport => {
+        Object.keys(alternateData[sport]).forEach(leagueId => {
+          const leagueMarkets = alternateData[sport][leagueId];
+          if (Array.isArray(leagueMarkets)) {
+            alternateMarkets = alternateMarkets.concat(leagueMarkets);
+          }
+        });
+      });
+      
+      // Validate all market addresses
+      alternateMarkets = alternateMarkets.map(market => ({
+        ...market,
+        address: ethers.getAddress(market.address) // Ensures proper checksum format
+      }));
+      
+      console.log(`Found ${alternateMarkets.length} markets from alternate endpoint`);
+      return alternateMarkets;
+    } catch (alternateError) {
+      console.error("Both endpoints failed:", alternateError);
+      return [];
+    }
   }
 }
 
@@ -224,7 +286,6 @@ export async function getBigGame(): Promise<Market | null> {
     return topMarket;
   } catch (error) {
     console.error('Failed to get the big game:', error);
-    // Return mock data if API is failing
     return getMockMarkets()[0];
   }
 }
@@ -256,13 +317,22 @@ export async function getQuote(
       }]
     };
     
-    // UPDATED: Use the correct quote API endpoint
-    const url = `https://api.thalesmarket.io/overtime/networks/${networkId}/quote`;
-    
-    const response = await fetchViaProxy(url, {
-      method: 'POST',
-      body: JSON.stringify(tradeData)
-    });
+    // Try both endpoints
+    let response;
+    try {
+      const url = `https://api.overtimemarkets.xyz/v2/networks/${networkId}/quote`;
+      response = await fetchApi(url, {
+        method: 'POST',
+        body: JSON.stringify(tradeData)
+      });
+    } catch (error) {
+      console.log("Primary quote endpoint failed, trying alternate");
+      const alternateUrl = `https://api.thalesmarket.io/overtime/networks/${networkId}/quote`;
+      response = await fetchApi(alternateUrl, {
+        method: 'POST',
+        body: JSON.stringify(tradeData)
+      });
+    }
     
     if (!response) {
       throw new Error("Failed to get quote from API");
@@ -346,6 +416,10 @@ export async function placeBet(
         throw new Error(`Unsupported network: ${networkId}`);
     }
     
+    // Ensure market address is in correct checksum format
+    const checksummedMarketAddress = ethers.getAddress(market.address);
+    console.log(`Using checksummed market address: ${checksummedMarketAddress}`);
+    
     // Create contract instances
     const usdcContract = new ethers.Contract(contractAddresses.USDC, contractAbis.ERC20_ABI, signer);
     const overtimeAMMContract = new ethers.Contract(contractAddresses.OVERTIME_AMM, contractAbis.OVERTIME_MARKET_ABI, signer);
@@ -372,12 +446,12 @@ export async function placeBet(
     // Place the bet using buyFromAMMWithDifferentCollateralAndReferrer function
     console.log("Placing bet...");
     const betTx = await overtimeAMMContract.buyFromAMMWithDifferentCollateralAndReferrer(
-      market.address,        // market address
-      position,              // 0 for home, 1 for away
-      amountInWei,           // amount of USDC to spend
+      checksummedMarketAddress,  // Use checksummed address
+      position,                  // 0 for home, 1 for away
+      amountInWei,               // amount of USDC to spend
       ethers.parseUnits(slippageAdjustedPayout.toString(), 6),  // minimum expected payout with slippage
-      contractAddresses.USDC, // USDC address
-      ethers.ZeroAddress     // no referrer
+      contractAddresses.USDC,    // USDC address
+      ethers.ZeroAddress         // no referrer
     );
     
     const receipt = await betTx.wait();
@@ -405,35 +479,38 @@ export function getCurrentNetworkId(): number {
 
 /**
  * Get mock market data for testing when API is down
+ * Uses proper checksummed addresses to prevent errors
  */
 function getMockMarkets(): Market[] {
   return [
     {
-      address: "0x5c8fc28353421c10b37386ccea7f93af85f3770d",
+      // Using proper checksummed address format
+      address: ethers.getAddress("0x80903Aa4d358542652c8D4B33cd942EA1Bf8fd41"),
       gameId: "0x323032353033303832333330303030",
       sport: "Basketball",
       sportId: 0,
       typeId: 0,
-      maturity: 1741476600, // March 8, 2025, 5:30 PM CST
+      maturity: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
       status: 0,
       homeTeam: "North Carolina",
       awayTeam: "Duke",
-      homeOdds: 1.95, // +195 in American odds
-      awayOdds: 1.85, // -120 in American odds
+      homeOdds: 1.95,
+      awayOdds: 1.85,
       networkId: 8453
     },
     {
-      address: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
+      // Second mock market
+      address: ethers.getAddress("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
       gameId: "0x323032353033303832333330303031",
       sport: "Basketball",
       sportId: 0,
       typeId: 0,
-      maturity: 1741483800, // March 8, 2025, 7:30 PM CST
+      maturity: Math.floor(Date.now() / 1000) + 7200, // 2 hours from now
       status: 0,
       homeTeam: "Kansas",
       awayTeam: "Kentucky",
-      homeOdds: 2.1, // +210 in American odds
-      awayOdds: 1.75, // -133 in American odds
+      homeOdds: 2.1,
+      awayOdds: 1.75,
       networkId: 8453
     }
   ];
