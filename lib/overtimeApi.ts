@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - Complete solution with fallback NBA data
+// lib/overtimeApi.ts - Using only real data, no fallbacks
 // Import the placeBet function from betUtils
 export { placeBet } from './betUtils';
 
@@ -37,13 +37,6 @@ const CHAIN_NAMES = {
   [NETWORK_IDS.BASE]: 'Base'
 };
 
-// Sport IDs - NBA is sport ID 1 according to Overtime docs
-const SPORT_IDS = {
-  BASKETBALL: 1,
-  SOCCER: 2,
-  NFL: 3
-};
-
 // Cache for markets data
 let marketsCache: {
   timestamp: number;
@@ -55,8 +48,8 @@ let marketsCache: {
   networkId: NETWORK_IDS.BASE
 };
 
-// Cache expiration in milliseconds (5 minutes)
-const CACHE_EXPIRATION = 5 * 60 * 1000;
+// Cache expiration in milliseconds (1 minute)
+const CACHE_EXPIRATION = 1 * 60 * 1000; // Shorter cache to get fresh data more often
 
 /**
  * Fetch data from the API with error handling
@@ -67,27 +60,26 @@ async function fetchApi(url: string, options: RequestInit = {}): Promise<any> {
   try {
     console.log(`Fetching from: ${url}`);
     
-    // First try direct fetch
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
+      cache: 'no-store'
+    });
+    
+    if (!response.ok) {
+      console.error(`API call returned status ${response.status}: ${response.statusText}`);
+      throw new Error(`API returned status ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (directFetchError) {
+    console.log("Direct fetch failed, trying via proxy...", directFetchError);
+    
     try {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          ...options.headers
-        },
-        cache: 'no-store'
-      });
-      
-      if (!response.ok) {
-        console.error(`Direct API call returned status ${response.status}: ${response.statusText}`);
-        throw new Error(`API returned status ${response.status}`);
-      }
-      
-      return await response.json();
-    } catch (directFetchError) {
-      console.log("Direct fetch failed, trying via proxy...");
-      
       // Fallback to proxy
       const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
       
@@ -106,21 +98,21 @@ async function fetchApi(url: string, options: RequestInit = {}): Promise<any> {
       }
       
       return await proxyResponse.json();
+    } catch (proxyError) {
+      console.error("Proxy fetch also failed:", proxyError);
+      throw proxyError;
     }
-  } catch (error) {
-    console.error(`Error fetching from ${url}:`, error);
-    throw error;
   }
 }
 
 /**
- * Get live NBA markets for a specific network
- * @param networkId Network ID
- * @returns Array of NBA markets
+ * Get all markets from a specific network
+ * @param networkId Network ID (10 for Optimism, 42161 for Arbitrum, etc)
+ * @returns Array of markets or empty array if failed
  */
-async function getNBAMarketsForNetwork(networkId: number): Promise<Market[]> {
+async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
   try {
-    // Using the correct endpoint from documentation
+    // Using EXACTLY the endpoint from the screenshots
     const url = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/markets`;
     
     console.log(`Fetching markets from: ${url}`);
@@ -131,238 +123,151 @@ async function getNBAMarketsForNetwork(networkId: number): Promise<Market[]> {
       return [];
     }
     
-    let nbaMarkets: Market[] = [];
+    // Log the raw data structure to debug
+    console.log(`API response structure:`, Object.keys(data));
     
-    // API returns data grouped by sport and league - filter for NBA
+    // Restructure data if needed based on the response format
+    let markets: Market[] = [];
+    
+    // API returns data grouped by sport and league - flatten it
     Object.keys(data).forEach(sport => {
-      // Check if this is basketball
-      if (sport === 'Basketball' || parseInt(sport) === SPORT_IDS.BASKETBALL) {
-        Object.keys(data[sport]).forEach(leagueId => {
-          const markets = data[sport][leagueId];
-          if (Array.isArray(markets)) {
-            // Filter for NBA games by checking league name or common NBA teams
-            const filteredMarkets = markets.filter(market => {
-              return (
-                (market.leagueName && market.leagueName.includes('NBA')) ||
-                (market.homeTeam && isNBATeam(market.homeTeam)) ||
-                (market.awayTeam && isNBATeam(market.awayTeam))
-              );
-            });
-            
-            // Filter out markets with invalid odds
-            const validMarkets = filteredMarkets.filter(market => {
-              return (
-                market.homeOdds && 
-                !isNaN(market.homeOdds) && 
-                market.awayOdds && 
-                !isNaN(market.awayOdds)
-              );
-            });
-            
-            nbaMarkets = nbaMarkets.concat(validMarkets);
-          }
-        });
-      }
+      console.log(`Processing sport: ${sport}`);
+      Object.keys(data[sport]).forEach(leagueId => {
+        console.log(`Processing league: ${leagueId} for sport ${sport}`);
+        // Add each market to the array
+        const leagueMarkets = data[sport][leagueId];
+        if (Array.isArray(leagueMarkets)) {
+          console.log(`Found ${leagueMarkets.length} markets in league ${leagueId}`);
+          
+          // Get all markets with valid odds
+          const validMarkets = leagueMarkets.filter(market => {
+            const hasHomeOdds = market.homeOdds && !isNaN(market.homeOdds);
+            const hasAwayOdds = market.awayOdds && !isNaN(market.awayOdds);
+            if (!hasHomeOdds || !hasAwayOdds) {
+              console.log(`Skipping market with invalid odds: ${market.homeTeam} vs ${market.awayTeam}`);
+            }
+            return hasHomeOdds && hasAwayOdds;
+          });
+          
+          markets = markets.concat(validMarkets);
+        }
+      });
     });
     
-    console.log(`Found ${nbaMarkets.length} NBA markets on ${CHAIN_NAMES[networkId]}`);
-    return nbaMarkets;
+    console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId]}`);
+    
+    // Log a sample market to debug structure
+    if (markets.length > 0) {
+      console.log("Sample market:", JSON.stringify(markets[0]));
+    }
+    
+    return markets;
   } catch (error) {
-    console.error(`Error getting NBA markets for network ${networkId}:`, error);
+    console.error(`Error getting markets for network ${networkId}:`, error);
     return [];
   }
 }
 
 /**
- * Check if a team name is an NBA team
- * @param teamName Team name to check
- * @returns True if it's an NBA team
+ * Find markets from all supported networks, prioritizing Base
+ * @returns Object with markets array and the network ID they came from
  */
-function isNBATeam(teamName: string): boolean {
-  const nbaTeams = [
-    'Lakers', 'Celtics', 'Warriors', 'Knicks', 'Bulls', 'Heat', 'Mavericks',
-    'Bucks', 'Nets', '76ers', 'Suns', 'Clippers', 'Raptors', 'Nuggets',
-    'Spurs', 'Cavaliers', 'Hawks', 'Pacers', 'Trail Blazers', 'Grizzlies',
-    'Pelicans', 'Thunder', 'Kings', 'Wizards', 'Rockets', 'Pistons',
-    'Magic', 'Hornets', 'Timberwolves', 'Jazz'
-  ];
-  
-  return nbaTeams.some(team => teamName.includes(team));
-}
-
-/**
- * Find NBA markets from all supported networks
- */
-async function findNBAMarketsFromAllNetworks(): Promise<{ markets: Market[], networkId: number }> {
+async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networkId: number }> {
   // Try Base first, then Optimism, then Arbitrum
   const networks = [NETWORK_IDS.BASE, NETWORK_IDS.OPTIMISM, NETWORK_IDS.ARBITRUM];
   
   for (const networkId of networks) {
     try {
-      const markets = await getNBAMarketsForNetwork(networkId);
+      const markets = await getMarketsForNetwork(networkId);
       
       if (markets.length > 0) {
-        console.log(`Using ${markets.length} NBA markets from ${CHAIN_NAMES[networkId]}`);
+        console.log(`Using ${markets.length} markets from ${CHAIN_NAMES[networkId]}`);
         return { markets, networkId };
       }
     } catch (error) {
-      console.error(`Error getting NBA markets for network ${networkId}:`, error);
+      console.error(`Error getting markets for network ${networkId}:`, error);
       // Continue to next network
     }
   }
   
-  console.log("No NBA markets found on any network, using fallback data");
-  return { 
-    markets: getNBAFallbackMarkets(), 
-    networkId: NETWORK_IDS.BASE 
-  };
+  console.log("No markets found on any network");
+  return { markets: [], networkId: NETWORK_IDS.BASE };
 }
 
 /**
- * Generate NBA fallback markets when API is down
- */
-function getNBAFallbackMarkets(): Market[] {
-  // Current timestamp + 3 hours for upcoming games
-  const futureTime = Math.floor(Date.now() / 1000) + (3 * 60 * 60);
-  
-  return [
-    {
-      address: "0x80903Aa4d358542652c8D4B33cd942EA1Bf8fd41",
-      gameId: "0x323032353033303932333330303030",
-      sport: "Basketball",
-      sportId: SPORT_IDS.BASKETBALL,
-      typeId: 0,
-      maturity: futureTime,
-      status: 0,
-      homeTeam: "Los Angeles Lakers",
-      awayTeam: "Boston Celtics",
-      homeOdds: 1.95,
-      awayOdds: 1.85,
-      networkId: NETWORK_IDS.BASE
-    },
-    {
-      address: "0x80903Aa4d358542652c8D4B33cd942EA1Bf8fd41",
-      gameId: "0x323032353033303932333330303031",
-      sport: "Basketball",
-      sportId: SPORT_IDS.BASKETBALL,
-      typeId: 0,
-      maturity: futureTime + (60 * 60), // 1 hour after first game
-      status: 0,
-      homeTeam: "Golden State Warriors",
-      awayTeam: "New York Knicks",
-      homeOdds: 1.75,
-      awayOdds: 2.05,
-      networkId: NETWORK_IDS.BASE
-    },
-    {
-      address: "0x80903Aa4d358542652c8D4B33cd942EA1Bf8fd41",
-      gameId: "0x323032353033303932333330303032",
-      sport: "Basketball",
-      sportId: SPORT_IDS.BASKETBALL,
-      typeId: 0,
-      maturity: futureTime + (2 * 60 * 60), // 2 hours after first game
-      status: 0,
-      homeTeam: "Chicago Bulls",
-      awayTeam: "Miami Heat",
-      homeOdds: 2.10,
-      awayOdds: 1.70,
-      networkId: NETWORK_IDS.BASE
-    }
-  ];
-}
-
-/**
- * Get active markets with fallback data when API fails
+ * Get the highest liquidity active markets
+ * @returns Promise with array of markets
  */
 export async function getActiveMarkets(): Promise<Market[]> {
-  try {
-    const currentTime = Date.now();
-    
-    // Use cache if valid
-    if (
-      marketsCache.markets.length > 0 && 
-      currentTime - marketsCache.timestamp < CACHE_EXPIRATION
-    ) {
-      console.log(`Using cached markets from ${CHAIN_NAMES[marketsCache.networkId]}`);
-      return marketsCache.markets;
-    }
-    
-    console.log("Cache expired or empty, fetching fresh NBA data");
-    
-    // Find NBA markets from supported networks
-    const { markets, networkId } = await findNBAMarketsFromAllNetworks();
-    
-    // Update cache
-    marketsCache = {
-      timestamp: currentTime,
-      markets,
-      networkId
-    };
-    
-    return markets;
-  } catch (error) {
-    console.error('Failed to fetch active NBA markets:', error);
-    
-    // Return fallback data if cache is empty
-    if (marketsCache.markets.length === 0) {
-      const currentTime = Date.now();
-      const fallbackMarkets = getNBAFallbackMarkets();
-      marketsCache = {
-        timestamp: currentTime,
-        markets: fallbackMarkets,
-        networkId: NETWORK_IDS.BASE
-      };
-      return fallbackMarkets;
-    }
-    
+  const currentTime = Date.now();
+  
+  // Use cache if valid (but keep short to get fresh data frequently)
+  if (
+    marketsCache.markets.length > 0 && 
+    currentTime - marketsCache.timestamp < CACHE_EXPIRATION
+  ) {
+    console.log(`Using cached markets from ${CHAIN_NAMES[marketsCache.networkId]}`);
     return marketsCache.markets;
   }
+  
+  console.log("Cache expired or empty, fetching fresh data");
+  
+  // Find markets from supported networks
+  const { markets, networkId } = await findMarketsFromAllNetworks();
+  
+  // Update cache
+  marketsCache = {
+    timestamp: currentTime,
+    markets,
+    networkId
+  };
+  
+  return markets;
 }
 
 /**
- * Get the "Big Game" - the NBA market with highest liquidity
+ * Get the "Big Game" - the market with highest liquidity
+ * @returns Promise with the market or null if none found
  */
 export async function getBigGame(): Promise<Market | null> {
-  try {
-    const markets = await getActiveMarkets();
-    
-    if (markets.length === 0) {
-      console.log('No NBA markets available');
-      return null;
-    }
-    
-    // Find market with highest liquidity/interest
-    const sortedMarkets = [...markets].sort((a, b) => {
-      // Sort by status (prioritize active games)
-      const statusDiff = (a.status || 0) - (b.status || 0);
-      if (statusDiff !== 0) return statusDiff;
-      
-      // Then sort by maturity (closest game first)
-      const now = Math.floor(Date.now() / 1000);
-      const timeToGameA = (a.maturity || 0) - now;
-      const timeToGameB = (b.maturity || 0) - now;
-      
-      if (timeToGameA > 0 && timeToGameB <= 0) return -1;
-      if (timeToGameA <= 0 && timeToGameB > 0) return 1;
-      
-      return timeToGameA - timeToGameB;
-    });
-    
-    const topMarket = sortedMarkets[0];
-    console.log('Selected top NBA market:', topMarket);
-    
-    return topMarket;
-  } catch (error) {
-    console.error('Failed to get the big game:', error);
-    
-    // Return first fallback market if there's an error
-    const fallbackMarkets = getNBAFallbackMarkets();
-    return fallbackMarkets[0];
+  const markets = await getActiveMarkets();
+  
+  if (markets.length === 0) {
+    console.log('No markets available');
+    return null;
   }
+  
+  // Find market with highest liquidity/interest
+  // Note: sorting logic may need to be adjusted based on actual data structure
+  const sortedMarkets = [...markets].sort((a, b) => {
+    // Sort by status (prioritize active games)
+    const statusDiff = (a.status || 0) - (b.status || 0);
+    if (statusDiff !== 0) return statusDiff;
+    
+    // Then sort by maturity (closest game first)
+    const now = Math.floor(Date.now() / 1000);
+    const timeToGameA = (a.maturity || 0) - now;
+    const timeToGameB = (b.maturity || 0) - now;
+    
+    if (timeToGameA > 0 && timeToGameB <= 0) return -1;
+    if (timeToGameA <= 0 && timeToGameB > 0) return 1;
+    
+    return timeToGameA - timeToGameB;
+  });
+  
+  const topMarket = sortedMarkets[0];
+  console.log('Selected top market:', topMarket);
+  
+  return topMarket;
 }
 
 /**
  * Get a quote for placing a bet 
+ * @param market The market to bet on
+ * @param position Which position to bet on (0=home, 1=away)
+ * @param amount Amount to bet in USDC
+ * @param networkId Network ID
+ * @returns Quote data
  */
 export async function getQuote(
   market: Market, 
@@ -370,81 +275,38 @@ export async function getQuote(
   amount: number,
   networkId: number
 ): Promise<any> {
-  try {
-    // Format the trade data according to the API
-    const tradeData = {
-      buyInAmount: amount,
-      tradeData: [{
-        gameId: market.gameId,
-        sportId: market.sportId || SPORT_IDS.BASKETBALL,
-        typeId: market.typeId || 0,
-        maturity: market.maturity,
-        status: market.status || 0,
-        line: market.line || 0,
-        playerId: market.playerId || "",
-        position: position,
-        odds: [market.homeOdds, market.awayOdds, market.drawOdds || 0],
-        combinedPositions: ["", "", ""]
-      }]
-    };
-    
-    // Try to get a quote from the API
-    try {
-      const url = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/quote`;
-      
-      const response = await fetchApi(url, {
-        method: 'POST',
-        body: JSON.stringify(tradeData)
-      });
-      
-      if (response && response.quoteData && response.quoteData.totalQuote) {
-        return response;
-      }
-      
-      throw new Error("Invalid quote data");
-    } catch (apiError) {
-      console.error("Error getting quote from API:", apiError);
-      
-      // Return a mocked quote if the API fails
-      const expectedOdds = position === 0 ? market.homeOdds : market.awayOdds;
-      const expectedPayout = amount * expectedOdds;
-      
-      return {
-        quoteData: {
-          totalQuote: {
-            decimal: expectedOdds,
-            american: expectedOdds >= 2 ? 
-              `+${Math.round((expectedOdds - 1) * 100)}` : 
-              `-${Math.round(100 / (expectedOdds - 1))}`
-          },
-          expectedPayout,
-          buyInAmount: amount
-        }
-      };
-    }
-  } catch (error) {
-    console.error('Error processing quote:', error);
-    
-    // Fallback quote data
-    const expectedOdds = position === 0 ? market.homeOdds : market.awayOdds;
-    
-    return {
-      quoteData: {
-        totalQuote: {
-          decimal: expectedOdds,
-          american: expectedOdds >= 2 ? 
-            `+${Math.round((expectedOdds - 1) * 100)}` : 
-            `-${Math.round(100 / (expectedOdds - 1))}`
-        },
-        expectedPayout: amount * expectedOdds,
-        buyInAmount: amount
-      }
-    };
-  }
+  // Format the trade data according to the API
+  const tradeData = {
+    buyInAmount: amount,
+    tradeData: [{
+      gameId: market.gameId,
+      sportId: market.sportId,
+      typeId: market.typeId,
+      maturity: market.maturity,
+      status: market.status,
+      line: market.line || 0,
+      playerId: market.playerId || "",
+      position: position,
+      odds: [market.homeOdds, market.awayOdds, market.drawOdds || 0],
+      combinedPositions: ["", "", ""]
+    }]
+  };
+  
+  // Using the correct endpoint from the screenshots
+  const url = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/quote`;
+  
+  console.log(`Getting quote from: ${url}`, tradeData);
+  const response = await fetchApi(url, {
+    method: 'POST',
+    body: JSON.stringify(tradeData)
+  });
+  
+  return response;
 }
 
 /**
  * Get the current network ID being used
+ * @returns The network ID (chain ID) being used for markets
  */
 export function getCurrentNetworkId(): number {
   return marketsCache.networkId;
