@@ -1,4 +1,4 @@
-// lib/overtimeApi.ts - API functionality only
+// lib/overtimeApi.ts - Using the exact endpoints from documentation
 // Import the placeBet function from betUtils
 export { placeBet } from './betUtils';
 
@@ -45,39 +45,64 @@ let marketsCache: {
 } = {
   timestamp: 0,
   markets: [],
-  networkId: NETWORK_IDS.OPTIMISM // Default to Optimism
+  networkId: NETWORK_IDS.BASE // Default to Base
 };
 
 // Cache expiration in milliseconds (5 minutes)
 const CACHE_EXPIRATION = 5 * 60 * 1000;
 
 /**
- * Fetch data from the Overtime API with error handling
+ * Fetch data from the API with error handling
  * @param url API endpoint URL
  * @returns Promise with parsed data or null if failed
  */
-async function fetchApi(url: string): Promise<any> {
+async function fetchApi(url: string, options: RequestInit = {}): Promise<any> {
   try {
     console.log(`Fetching from: ${url}`);
     
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      },
-      cache: 'no-store'
-    });
-    
-    if (!response.ok) {
-      console.error(`API returned status ${response.status}: ${response.statusText}`);
-      return null;
+    // First try direct fetch
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...options.headers
+        },
+        cache: 'no-store'
+      });
+      
+      if (!response.ok) {
+        console.error(`Direct API call returned status ${response.status}: ${response.statusText}`);
+        throw new Error(`API returned status ${response.status}`);
+      }
+      
+      return await response.json();
+    } catch (directFetchError) {
+      console.log("Direct fetch failed, trying via proxy...");
+      
+      // Fallback to proxy
+      const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
+      
+      const proxyResponse = await fetch(proxyUrl, {
+        ...options,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...options.headers
+        }
+      });
+      
+      if (!proxyResponse.ok) {
+        console.error(`Proxy API call returned status ${proxyResponse.status}: ${proxyResponse.statusText}`);
+        throw new Error(`Proxy API returned status ${proxyResponse.status}`);
+      }
+      
+      return await proxyResponse.json();
     }
-    
-    return await response.json();
   } catch (error) {
     console.error(`Error fetching from ${url}:`, error);
-    return null;
+    throw error;
   }
 }
 
@@ -88,9 +113,10 @@ async function fetchApi(url: string): Promise<any> {
  */
 async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
   try {
-    // Correct API endpoint from the documentation 
-    const url = `https://api.overtimemarkets.xyz/v2/networks/${networkId}/markets?status=open`;
+    // Using EXACTLY the endpoint from the screenshots
+    const url = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/markets`;
     
+    console.log(`Fetching markets from: ${url}`);
     const data = await fetchApi(url);
     
     if (!data) {
@@ -112,7 +138,7 @@ async function getMarketsForNetwork(networkId: number): Promise<Market[]> {
       });
     });
     
-    console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId]}`);
+    console.log(`Found ${markets.length} markets on ${CHAIN_NAMES[networkId] || 'Unknown Chain'}`);
     return markets;
   } catch (error) {
     console.error(`Error getting markets for network ${networkId}:`, error);
@@ -129,16 +155,21 @@ async function findMarketsFromAllNetworks(): Promise<{ markets: Market[], networ
   const networks = [NETWORK_IDS.BASE, NETWORK_IDS.OPTIMISM, NETWORK_IDS.ARBITRUM];
   
   for (const networkId of networks) {
-    const markets = await getMarketsForNetwork(networkId);
-    
-    if (markets.length > 0) {
-      console.log(`Using ${markets.length} markets from ${CHAIN_NAMES[networkId]}`);
-      return { markets, networkId };
+    try {
+      const markets = await getMarketsForNetwork(networkId);
+      
+      if (markets.length > 0) {
+        console.log(`Using ${markets.length} markets from ${CHAIN_NAMES[networkId]}`);
+        return { markets, networkId };
+      }
+    } catch (error) {
+      console.error(`Error getting markets for network ${networkId}:`, error);
+      // Continue to next network
     }
   }
   
   console.log("No markets found on any network");
-  return { markets: [], networkId: NETWORK_IDS.OPTIMISM };
+  return { markets: [], networkId: NETWORK_IDS.BASE };
 }
 
 /**
@@ -173,9 +204,7 @@ export async function getActiveMarkets(): Promise<Market[]> {
     return markets;
   } catch (error) {
     console.error('Failed to fetch active markets:', error);
-    
-    // Return cached data if available, otherwise empty array
-    return marketsCache.markets.length > 0 ? marketsCache.markets : [];
+    return [];
   }
 }
 
@@ -252,24 +281,15 @@ export async function getQuote(
       }]
     };
     
-    // Get quote from the API
-    const url = `https://api.overtimemarkets.xyz/v2/networks/${networkId}/quote`;
+    // Using EXACTLY the endpoint from the screenshots
+    const url = `https://overtimemarketsv2.xyz/overtime-v2/networks/${networkId}/quote`;
     
-    const response = await fetch(url, {
+    const response = await fetchApi(url, {
       method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      },
       body: JSON.stringify(tradeData)
     });
     
-    if (!response.ok) {
-      throw new Error(`Failed to get quote: ${response.statusText}`);
-    }
-    
-    const quoteData = await response.json();
-    return quoteData;
+    return response;
   } catch (error) {
     console.error('Error getting quote:', error);
     throw error;
