@@ -276,12 +276,12 @@ function getNBAFallbackMarkets(): Market[] {
  */
 export async function getActiveMarkets(): Promise<Market[]> {
   try {
-    const now = Date.now();
+    const currentTime = Date.now();
     
     // Use cache if valid
     if (
       marketsCache.markets.length > 0 && 
-      now - marketsCache.timestamp < CACHE_EXPIRATION
+      currentTime - marketsCache.timestamp < CACHE_EXPIRATION
     ) {
       console.log(`Using cached markets from ${CHAIN_NAMES[marketsCache.networkId]}`);
       return marketsCache.markets;
@@ -294,7 +294,7 @@ export async function getActiveMarkets(): Promise<Market[]> {
     
     // Update cache
     marketsCache = {
-      timestamp: now,
+      timestamp: currentTime,
       markets,
       networkId
     };
@@ -305,9 +305,10 @@ export async function getActiveMarkets(): Promise<Market[]> {
     
     // Return fallback data if cache is empty
     if (marketsCache.markets.length === 0) {
+      const currentTime = Date.now();
       const fallbackMarkets = getNBAFallbackMarkets();
       marketsCache = {
-        timestamp: now,
+        timestamp: currentTime,
         markets: fallbackMarkets,
         networkId: NETWORK_IDS.BASE
       };
