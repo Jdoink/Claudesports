@@ -22,7 +22,7 @@ export async function placeBet(
     
     // Import necessary libraries
     const { ethers } = await import('ethers');
-    const { CONTRACT_ADDRESSES, OVERTIME_MARKET_ABI, ERC20_ABI } = await import('@/lib/contractAbis');
+    const contractAbis = await import('@/lib/contractAbis');
     
     // Chain ID from the market
     const networkId = market.networkId || 8453; // Default to Base if not specified
@@ -39,10 +39,33 @@ export async function placeBet(
       throw new Error(`Please switch to the correct network to place this bet`);
     }
     
-    // Get contract addresses for the network
-    const contractAddresses = CONTRACT_ADDRESSES[networkId];
-    if (!contractAddresses) {
-      throw new Error(`Unsupported network: ${networkId}`);
+    // Get contract addresses for the network using a type-safe approach
+    let contractAddresses;
+    
+    switch(networkId) {
+      case 8453: // Base
+        contractAddresses = {
+          USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          OVERTIME_AMM: '0x80903Aa4d358542652c8D4B33cd942EA1Bf8fd41',
+          SPORT_MARKETS_MANAGER: '0x3Ed830e92eFfE68C0d1216B2b5115B1bceBB087C',
+        };
+        break;
+      case 10: // Optimism
+        contractAddresses = {
+          USDC: '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
+          OVERTIME_AMM: '0xad41C77d99E282267C1492cdEFe528D7d5044253',
+          SPORT_MARKETS_MANAGER: '0x8606926e4c3Cfb9d4B6742A62e1923854F4026dc',
+        };
+        break;
+      case 42161: // Arbitrum
+        contractAddresses = {
+          USDC: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',
+          OVERTIME_AMM: '0x82872A82E70081D42f5c2610259324Bb463B2bC2',
+          SPORT_MARKETS_MANAGER: '0xb3E8C659CF95BeA8c81d8D06407C5c7A2D75B1BC',
+        };
+        break;
+      default:
+        throw new Error(`Unsupported network: ${networkId}`);
     }
     
     // FIX: Ensure market address is properly checksummed
@@ -50,8 +73,8 @@ export async function placeBet(
     console.log("Using checksummed market address:", checksummedMarketAddress);
     
     // Create contract instances
-    const usdcContract = new ethers.Contract(contractAddresses.USDC, ERC20_ABI, signer);
-    const overtimeAMMContract = new ethers.Contract(contractAddresses.OVERTIME_AMM, OVERTIME_MARKET_ABI, signer);
+    const usdcContract = new ethers.Contract(contractAddresses.USDC, contractAbis.ERC20_ABI, signer);
+    const overtimeAMMContract = new ethers.Contract(contractAddresses.OVERTIME_AMM, contractAbis.OVERTIME_MARKET_ABI, signer);
     
     // Convert amount to USDC units (USDC has 6 decimals)
     const amountInWei = ethers.parseUnits(amount, 6);
